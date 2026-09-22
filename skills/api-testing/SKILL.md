@@ -1,11 +1,11 @@
 ---
 name: api-testing
-description: Test REST and HTTP APIs using API Forge. Use for manual API testing, opening the API dashboard, sending requests, debugging failures, checking authentication or certificates, importing OpenAPI or Swagger, running chained collections, inspecting logs, retrying failed requests, or validating status/body/header/latency assertions.
+description: Test REST and HTTP APIs using AIPI. Use for manual API testing, opening the AIPI dashboard, sending requests, debugging failures, checking authentication or certificates, importing OpenAPI or Swagger, running chained collections, inspecting logs, retrying failed requests, or validating status/body/header/latency assertions.
 ---
 
-# API Forge
+# AIPI (AI-Programming Interface)
 
-API Forge combines a local inspection dashboard with MCP tools. Projects, environments, request definitions, documentation, and the last 500 logs share one local data store. Treat Codex chat as the control plane: the dashboard shows what is configured and what happened, while active planning, testing, diagnosis, and code correction happen through chat and tools.
+AIPI combines a local inspection dashboard with MCP tools. Projects, environments, request definitions, documentation, and the last 500 logs share one local data store. Treat Codex chat as the control plane: the dashboard shows what is configured and what happened, while active planning, testing, diagnosis, and code correction happen through chat and tools.
 
 ## Choose the surface
 

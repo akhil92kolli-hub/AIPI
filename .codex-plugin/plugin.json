@@ -1,5 +1,5 @@
 {
-  "name": "api-forge",
+  "name": "aipi",
   "version": "0.2.0+codex.20260922121908",
   "description": "Local-first API integration intelligence for discovery, evidence-based diagnosis, fix planning, and native regression tests.",
   "author": {
@@ -18,7 +18,7 @@
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "API Forge",
+    "displayName": "AIPI",
     "shortDescription": "From failing API to verified code fix",
     "longDescription": "Map frontend calls to backend routes and schemas, execute APIs locally, inspect evidence, compare runs, create reviewed fix plans, and generate native regression tests through Codex.",
     "developerName": "Akhil Kolli",
@@ -29,7 +29,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Open my API Forge dashboard.",
+      "Open my AIPI dashboard.",
       "Review my API integration issues and propose a verification plan.",
       "Diagnose my latest failed API request and create an evidence-based fix plan."
     ],

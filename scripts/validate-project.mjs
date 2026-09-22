@@ -26,13 +26,13 @@ for (const relative of required) {
 }
 
 const manifest = JSON.parse(await fs.readFile(path.join(root, ".codex-plugin/plugin.json"), "utf8"));
-assert.equal(manifest.name, "api-forge");
+assert.equal(manifest.name, "aipi");
 assert.equal(manifest.skills, "./skills/");
 assert.equal(manifest.mcpServers, "./.mcp.json");
 assert.match(manifest.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
 
 const mcp = JSON.parse(await fs.readFile(path.join(root, ".mcp.json"), "utf8"));
-assert.ok(mcp.mcpServers?.["api-forge"]);
-assert.ok(mcp.mcpServers["api-forge"].args.includes("${PLUGIN_ROOT}/scripts/api-forge-server.mjs"));
+assert.ok(mcp.mcpServers?.aipi);
+assert.ok(mcp.mcpServers.aipi.args.includes("${PLUGIN_ROOT}/scripts/api-forge-server.mjs"));
 
-process.stdout.write("API Forge project validation passed\n");
+process.stdout.write("AIPI project validation passed\n");

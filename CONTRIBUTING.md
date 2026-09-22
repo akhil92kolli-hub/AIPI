@@ -1,6 +1,6 @@
-# Contributing to API Forge
+# Contributing to AIPI
 
-API Forge intentionally has no runtime package dependencies. Use Node.js 18 or later.
+AIPI intentionally has no runtime package dependencies. Use Node.js 18 or later.
 
 ## Local development
 

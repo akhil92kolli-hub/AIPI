@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const DATA_DIR = process.env.API_FORGE_DATA && process.env.API_FORGE_DATA !== "${PLUGIN_DATA}"
-  ? process.env.API_FORGE_DATA
+const DATA_DIR = (process.env.AIPI_DATA || process.env.API_FORGE_DATA) && (process.env.AIPI_DATA || process.env.API_FORGE_DATA) !== "${PLUGIN_DATA}"
+  ? (process.env.AIPI_DATA || process.env.API_FORGE_DATA)
   : path.join(os.homedir(), ".api-forge");
 const DATA_FILE = path.join(DATA_DIR, "workspace.json");
 let saveQueue = Promise.resolve();

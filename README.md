@@ -1,14 +1,14 @@
-# API Forge
+# AIPI (AI-Programming Interface)
 
-API Forge is a local-first API integration intelligence workspace for Codex. It maps frontend calls to backend implementations and schema evidence, executes requests locally, produces reviewable fix plans, and generates native regression tests. The mobile-style dashboard is an inspection surface; Codex chat is the control plane.
+AIPI is a local-first API integration intelligence workspace for Codex, Cursor, and GitHub Copilot. It discovers endpoints, reproduces failures locally, diagnoses the responsible code from evidence, and generates native regression tests. The dashboard is an inspection surface; your existing agent remains the control plane.
 
-## Why API Forge
+## Why AIPI
 
 Developers building with Codex often create APIs and edge functions faster than they can test, organize, and reuse them. API Forge keeps exploratory requests, repeatable collections, assertions, documentation, and failure evidence in one local workspace that both the developer and Codex can use.
 
 ## Dashboard
 
-Ask Codex to **open my API Forge dashboard**, or run `npm run dashboard` while developing the plugin. Open the returned loopback URL in Codex's browser panel and toggle that panel while coding. The Project, APIs, Runs, and Summary routes include:
+Ask Codex to **open my AIPI dashboard**, or run `npm run dashboard` while developing the plugin. Open the returned loopback URL in Codex's browser panel and toggle that panel while coding. The Project, APIs, Runs, and Summary routes include:
 
 - Projects, requests, environments, and variables
 - Bearer, Basic, and API-key authentication

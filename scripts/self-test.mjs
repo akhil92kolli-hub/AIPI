@@ -125,7 +125,7 @@ try {
   const dashboardPage = await fetch("http://127.0.0.1:43129/");
   assert.equal(dashboardPage.status, 200);
   const dashboardHtml = await dashboardPage.text();
-  assert.match(dashboardHtml, /API Forge/);
+  assert.match(dashboardHtml, /AIPI/);
   assert.match(dashboardHtml, /id="app"/);
   assert.match(dashboardHtml, /id="modal"/);
   const dashboardStyles = await fetch("http://127.0.0.1:43129/styles.css");

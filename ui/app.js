@@ -126,8 +126,8 @@ function codexContext(action = "contextual") {
     "review-runs": "Review recent API runs, group failures by likely cause, and recommend the smallest next checks.",
     "diagnose-run": "Diagnose this run from its saved evidence. Explain the first failing layer and propose a fix plan before changing code or retrying a state-changing request.",
     "plan-project": "Turn the current project evidence into a concise plan-build-test workflow, including frontend/backend/schema gaps and the next implementation tasks.",
-    contextual: "Review the current API Forge screen and continue the most useful project, test, diagnosis, or implementation task in Codex chat."
-  })[action] ?? "Review this API Forge context and continue the work in Codex chat.";
+    contextual: "Review the current AIPI screen and continue the most useful project, test, diagnosis, or implementation task in Codex chat."
+  })[action] ?? "Review this AIPI context and continue the work in Codex chat.";
   const context = {
     project: { id: current.id, name: current.name, goal: current.summary?.goal ?? "" },
     screen: currentRoute.name,
@@ -150,7 +150,7 @@ function codexContext(action = "contextual") {
       assertions: (log.result?.assertions ?? []).map((entry) => ({ type: entry.type, passed: entry.passed }))
     } : null
   };
-  return `Continue this API Forge task in Codex chat.\n\n${instruction}\n\nUse the API Forge MCP tools with the IDs below to read authoritative local state and evidence. Do not ask me to restate information already saved in API Forge. Do not expose credentials or secret environment values. Do not retry POST, PUT, PATCH, or DELETE without my authorization.\n\nContext:\n${JSON.stringify(context, null, 2)}`;
+  return `Continue this AIPI task in Codex chat.\n\n${instruction}\n\nUse the AIPI MCP tools with the IDs below to read authoritative local state and evidence. Do not ask me to restate information already saved in AIPI. Do not expose credentials or secret environment values. Do not retry POST, PUT, PATCH, or DELETE without my authorization.\n\nContext:\n${JSON.stringify(context, null, 2)}`;
 }
 
 async function copyCodexContext(prompt) {
@@ -169,7 +169,7 @@ async function sendToCodex(action = "contextual") {
   const prompt = codexContext(action);
   try {
     if (typeof window.openai?.sendFollowUpMessage === "function") {
-      await window.openai.sendFollowUpMessage({ prompt, title: "Continue with API Forge" });
+      await window.openai.sendFollowUpMessage({ prompt, title: "Continue with AIPI" });
       toast("Context sent to Codex chat");
       return;
     }
@@ -179,7 +179,7 @@ async function sendToCodex(action = "contextual") {
       return;
     }
   } catch (error) {
-    console.warn("API Forge could not reach the Codex chat bridge", error);
+    console.warn("AIPI could not reach the Codex chat bridge", error);
   }
   await copyCodexContext(prompt);
 }
@@ -256,7 +256,7 @@ function renderProject() {
 
     <section class="section-block">
       <div class="section-heading"><div><p class="eyebrow">Source context</p><h2>${source.lastScannedAt ? `${source.filesScanned} files indexed` : "Connect your codebase"}</h2></div><button class="quiet-button" id="scanSourceSecondary">Edit</button></div>
-      ${source.roots?.length ? `<div class="source-list">${source.roots.map((entry) => `<div class="source-row"><div><strong>${esc(entry.kind)}</strong><span>${esc(entry.path)}</span></div><span class="status-text success">Included</span></div>`).join("")}</div>` : `<div class="empty-message"><h3>Give Codex the missing context</h3><p>Add frontend, backend, schema, tests, or a local Git clone. API Forge scans locally and stores only derived metadata.</p><button class="secondary-button" id="connectSourceEmpty">Choose folders</button></div>`}
+      ${source.roots?.length ? `<div class="source-list">${source.roots.map((entry) => `<div class="source-row"><div><strong>${esc(entry.kind)}</strong><span>${esc(entry.path)}</span></div><span class="status-text success">Included</span></div>`).join("")}</div>` : `<div class="empty-message"><h3>Give Codex the missing context</h3><p>Add frontend, backend, schema, tests, or a local Git clone. AIPI scans locally and stores only derived metadata.</p><button class="secondary-button" id="connectSourceEmpty">Choose folders</button></div>`}
       ${source.frameworks?.length ? `<div class="tag-row">${source.frameworks.map((entry) => `<span class="tag">${esc(entry)}</span>`).join("")}</div>` : ""}
       <p class="supporting-copy">${source.lastScannedAt ? `Last scanned ${formatDate(source.lastScannedAt)}.` : "Remote Git cloning is staged for a later release; use an existing local clone today."}</p>
     </section>
@@ -409,7 +409,7 @@ function openModal(title, body, confirmLabel, onConfirm) {
 
 function openSourceModal() {
   const roots = project().sourceContext?.roots?.length ? project().sourceContext.roots : [{ kind: "workspace", path: "" }];
-  openModal("Connect source context", `<p class="modal-intro">Add local folders or an existing local Git clone. API Forge scans source locally; secret values and file contents are not copied into project metadata.</p><div id="sourceRootList">${roots.map(sourceRootRow).join("")}</div><button type="button" class="quiet-button" id="addSourceRoot">Add another folder</button><p class="supporting-copy">Remote Git cloning will arrive later. Paste the path to a local clone for now.</p>`, "Scan source", async () => {
+  openModal("Connect source context", `<p class="modal-intro">Add local folders or an existing local Git clone. AIPI scans source locally; secret values and file contents are not copied into project metadata.</p><div id="sourceRootList">${roots.map(sourceRootRow).join("")}</div><button type="button" class="quiet-button" id="addSourceRoot">Add another folder</button><p class="supporting-copy">Remote Git cloning will arrive later. Paste the path to a local clone for now.</p>`, "Scan source", async () => {
     const sourceRoots = $$(".source-root-row", $("#modal")).map((row) => ({ kind: $("select", row).value, path: $("input", row).value.trim() })).filter((entry) => entry.path);
     if (!sourceRoots.length) throw new Error("Add at least one folder path");
     $("#modalConfirm").disabled = true;
@@ -441,7 +441,7 @@ function openCreateProjectModal() {
     <label class="field-label">Project goal<textarea class="text-input compact-input" id="newProjectGoal" placeholder="Verify frontend, backend, and database API contracts."></textarea></label>
     <div class="two-column-fields"><label class="field-label">Environment<input class="field" id="newEnvironmentName" value="Development"></label><label class="field-label">Base URL<input class="field" id="newBaseUrl" value="http://localhost:3000" spellcheck="false"></label></div>
     <label class="field-label">Local workspace folder <span class="optional-label">Optional</span><input class="field" id="newWorkspacePath" placeholder="/absolute/path/to/project" spellcheck="false"></label>
-    <p class="supporting-copy">The optional folder is scanned locally. API Forge stores derived route metadata, not source contents.</p>`, "Create project", async () => {
+    <p class="supporting-copy">The optional folder is scanned locally. AIPI stores derived route metadata, not source contents.</p>`, "Create project", async () => {
     const name = $("#newProjectName").value.trim();
     if (!name) throw new Error("Enter a project name");
     const workspacePath = $("#newWorkspacePath").value.trim();
@@ -582,4 +582,4 @@ async function init() {
   render();
 }
 
-init().catch((error) => { $("#app").innerHTML = `<div class="fatal-error"><h1>API Forge could not start</h1><pre>${esc(error.stack)}</pre></div>`; });
+init().catch((error) => { $("#app").innerHTML = `<div class="fatal-error"><h1>AIPI could not start</h1><pre>${esc(error.stack)}</pre></div>`; });

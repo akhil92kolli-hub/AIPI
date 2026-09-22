@@ -4,7 +4,7 @@ import path from "node:path";
 import { readRepositoryProject, writeRepositoryProject } from "../../collection-schema/index.mjs";
 
 function usage() {
-  return `API Forge CLI\n\nUsage:\n  api-forge export <workspace.json> <project-id> [root]\n  api-forge inspect [root]\n`;
+  return `AIPI CLI\n\nUsage:\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n`;
 }
 
 async function main() {
