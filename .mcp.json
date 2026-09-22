@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "api-forge": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/api-forge-server.mjs"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "API_FORGE_DATA": "${PLUGIN_DATA}"
+      }
+    }
+  }
+}

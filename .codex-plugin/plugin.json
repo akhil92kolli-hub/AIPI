@@ -1,0 +1,40 @@
+{
+  "name": "api-forge",
+  "version": "0.2.0+codex.20260922121908",
+  "description": "Local-first API integration intelligence for discovery, evidence-based diagnosis, fix planning, and native regression tests.",
+  "author": {
+    "name": "Akhil Kolli"
+  },
+  "license": "MIT",
+  "keywords": [
+    "api",
+    "rest",
+    "http",
+    "testing",
+    "postman",
+    "insomnia",
+    "collections"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "API Forge",
+    "shortDescription": "From failing API to verified code fix",
+    "longDescription": "Map frontend calls to backend routes and schemas, execute APIs locally, inspect evidence, compare runs, create reviewed fix plans, and generate native regression tests through Codex.",
+    "developerName": "Akhil Kolli",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Open my API Forge dashboard.",
+      "Review my API integration issues and propose a verification plan.",
+      "Diagnose my latest failed API request and create an evidence-based fix plan."
+    ],
+    "brandColor": "#F97316",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg"
+  }
+}

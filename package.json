@@ -1,0 +1,22 @@
+{
+  "name": "api-forge-codex-plugin",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A local API testing workspace for Codex and ChatGPT.",
+  "type": "module",
+  "bin": {
+    "api-forge": "./packages/cli/bin/api-forge.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "showcase": "node scripts/showcase-server.mjs",
+    "dashboard": "node scripts/start-dashboard.mjs",
+    "mcp": "node scripts/api-forge-server.mjs",
+    "cli": "node packages/cli/bin/api-forge.mjs",
+    "test": "node scripts/self-test.mjs",
+    "validate": "node scripts/validate-project.mjs"
+  },
+  "license": "MIT"
+}
