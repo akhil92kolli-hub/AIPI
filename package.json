@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "deploy": "npm run build && npx wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.136.2"
   }
 }
