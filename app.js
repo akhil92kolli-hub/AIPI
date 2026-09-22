@@ -8,19 +8,19 @@ sendButton?.addEventListener("click", () => {
   terminal.classList.remove("success");
   terminal.classList.add("loading");
   sendButton.disabled = true;
-  sendButton.firstChild.textContent = "Sending ";
-  diagnosis.querySelector("strong").textContent = "AI-PI is reading the response";
-  diagnosis.querySelector("p").textContent = "Checking status, schema, timing, and assertions…";
+  sendButton.firstChild.textContent = "Analyzing ";
+  diagnosis.querySelector("strong").textContent = "AI-PI is collecting evidence";
+  diagnosis.querySelector("p").textContent = "Comparing consumer, route, validator, schema, and tests…";
   diagnosis.querySelector(".analysis-badge").textContent = "···";
 
   window.setTimeout(() => {
     terminal.classList.remove("loading");
     terminal.classList.add("success");
     sendButton.disabled = false;
-    sendButton.firstChild.textContent = "Send ";
-    diagnosis.querySelector("strong").textContent = "AI-PI analysis";
-    diagnosis.querySelector("p").textContent = "Contract matched. Order created and both assertions passed.";
-    diagnosis.querySelector(".analysis-badge").textContent = "2/2";
+    sendButton.firstChild.textContent = "Diagnose ";
+    diagnosis.querySelector("strong").textContent = "Fix plan ready for review";
+    diagnosis.querySelector("p").textContent = "Update two call sites and one fixture, then generate a Vitest regression test.";
+    diagnosis.querySelector(".analysis-badge").textContent = "94%";
   }, 1150);
 });
 

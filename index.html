@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f3f0e8">
-  <meta name="description" content="AI-PI is the AI-native API workspace for building, testing, and debugging every interface your product depends on.">
-  <title>AI-PI — The interface between ideas and APIs</title>
+  <meta name="description" content="AI-PI maps frontend API calls to backend implementations, schemas, and tests—then helps your coding agent diagnose, correct, and verify the complete integration.">
+  <title>AI-PI — From failing API to verified code fix</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -19,23 +19,23 @@
     </a>
     <nav aria-label="Primary navigation">
       <a href="#why">Why AI-PI</a>
-      <a href="#capabilities">Capabilities</a>
+      <a href="#integration-map">Integration Map</a>
       <a href="#workflow">Workflow</a>
     </nav>
-    <a class="header-cta" href="#demo">Try the demo <span>↗</span></a>
+    <a class="header-cta" href="#demo">See the workflow <span>↗</span></a>
   </header>
 
   <main id="top">
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <p class="eyebrow"><span></span> API Forge, reimagined</p>
-        <h1 id="hero-title">The interface<br>between <em>ideas</em><br>and APIs.</h1>
-        <p class="hero-lede">Build, test, and understand every API in one AI-native workspace. AI-PI turns raw responses into clear next steps—without leaving your flow.</p>
+        <p class="eyebrow"><span></span> API Forge presents AI-PI</p>
+        <h1 id="hero-title">From failing API<br>to <em>verified</em><br>code fix.</h1>
+        <p class="hero-lede">AI-PI maps every frontend API call to its backend route, validation model, database schema, and tests—then gives your coding agent the evidence to correct and verify the complete integration.</p>
         <div class="hero-actions">
-          <a class="button button-dark" href="#demo">Forge your first request <span>↗</span></a>
+          <a class="button button-dark" href="#demo">Explore a diagnosis <span>↗</span></a>
           <a class="text-link" href="#workflow">See how it works <span>↓</span></a>
         </div>
-        <div class="trust-line"><span>LOCAL-FIRST</span><span>OPENAPI READY</span><span>BUILT FOR CODEX</span></div>
+        <div class="trust-line"><span>LOCAL-FIRST</span><span>REPOSITORY-NATIVE</span><span>AGENT-NEUTRAL</span></div>
       </div>
 
       <div class="hero-visual" id="demo">
@@ -44,122 +44,143 @@
         <div class="terminal-card">
           <div class="terminal-topbar">
             <div class="window-dots"><i></i><i></i><i></i></div>
-            <span>checkout-flow / create order</span>
+            <span>integration map / create invoice</span>
             <span class="live"><i></i> local</span>
           </div>
           <div class="request-row">
             <span class="method">POST</span>
-            <code>{{baseUrl}}/v1/orders</code>
-            <button id="sendRequest" type="button">Send <span>⌘↵</span></button>
+            <code>/api/invoices</code>
+            <button id="sendRequest" type="button">Diagnose <span>⌘↵</span></button>
           </div>
-          <div class="terminal-tabs" role="tablist" aria-label="Request data">
-            <button class="active" type="button" role="tab" aria-selected="true">Body</button>
-            <button type="button" role="tab" aria-selected="false">Headers <b>3</b></button>
-            <button type="button" role="tab" aria-selected="false">Tests <b>2</b></button>
+          <div class="terminal-tabs" role="tablist" aria-label="Integration evidence">
+            <button class="active" type="button" role="tab" aria-selected="true">Evidence</button>
+            <button type="button" role="tab" aria-selected="false">Source <b>3</b></button>
+            <button type="button" role="tab" aria-selected="false">Tests <b>1</b></button>
           </div>
-          <pre class="code-block" aria-label="JSON request body"><span>{</span>
-  <i>"customer_id"</i>: <q>"cus_07A2"</q>,
-  <i>"items"</i>: [
-    { <i>"sku"</i>: <q>"ai-pi-pro"</q>, <i>"qty"</i>: <b>1</b> }
-  ],
-  <i>"currency"</i>: <q>"USD"</q>
-<span>}</span></pre>
+          <pre class="code-block evidence-block" aria-label="Integration mismatch evidence"><span>consumer</span>  <i>src/hooks/useInvoices.ts:41</i>
+  customerId: <b>2048</b>              <q>number</q>
+
+<span>validator</span> <i>app/api/invoices/schema.ts:18</i>
+  customerId: z.string().uuid()     <q>UUID</q>
+
+<span>database</span>  <i>20260918_customer_uuid.sql</i></pre>
           <div class="response-line">
-            <span class="status-pill"><i></i> 201 Created</span>
-            <span>284 ms</span><span>1.4 KB</span>
+            <span class="status-pill mismatch"><i></i> Request mismatch</span>
+            <span>3 sources</span><span>94% confidence</span>
           </div>
           <div class="ai-diagnosis" id="diagnosis" aria-live="polite">
             <div class="ai-icon">✦</div>
-            <div><strong>AI-PI analysis</strong><p>Contract matched. Order created and both assertions passed.</p></div>
-            <span class="analysis-badge">2/2</span>
+            <div><strong>Evidence-based diagnosis</strong><p>Frontend sends a number; the validator and migration require a UUID.</p></div>
+            <span class="analysis-badge">FIX</span>
           </div>
         </div>
-        <div class="floating-chip chip-one"><span>✓</span> Contract matched</div>
-        <div class="floating-chip chip-two"><span>↻</span> Retry policy ready</div>
+        <div class="floating-chip chip-one"><span>!</span> Contract drift found</div>
+        <div class="floating-chip chip-two"><span>✓</span> Native test ready</div>
       </div>
     </section>
 
     <section class="marquee" aria-label="AI-PI capabilities">
-      <div>REQUESTS <span>✦</span> COLLECTIONS <span>✦</span> ASSERTIONS <span>✦</span> DIAGNOSIS <span>✦</span> RETRIES <span>✦</span> OPENAPI <span>✦</span> REQUESTS <span>✦</span> COLLECTIONS <span>✦</span> ASSERTIONS</div>
+      <div>DISCOVER <span>✦</span> MAP <span>✦</span> REPRODUCE <span>✦</span> DIAGNOSE <span>✦</span> CORRECT <span>✦</span> TEST <span>✦</span> VERIFY <span>✦</span> DISCOVER <span>✦</span> MAP <span>✦</span> REPRODUCE <span>✦</span> DIAGNOSE</div>
     </section>
 
     <section class="manifesto" id="why">
       <p class="section-index">01 / WHY AI-PI</p>
       <div>
-        <p class="manifesto-lead">APIs are where products come alive—and where development slows down.</p>
-        <p class="manifesto-copy">AI-PI gives developers and AI agents the same source of truth. Every request, environment, test, and failure stays organized in one local workspace, ready to inspect or run from conversation.</p>
+        <p class="manifesto-lead">Your frontend, backend, schema, and tests should tell the same story.</p>
+        <p class="manifesto-copy">AI-generated applications move fast, but their contracts drift. A frontend calls a route that never shipped. A migration changes a type the handler still expects. A manual fix never becomes a regression test. AI-PI connects those layers before asking AI to reason—so every correction begins with source evidence, not a guess.</p>
       </div>
+    </section>
+
+    <section class="integration-map" id="integration-map" aria-labelledby="map-title">
+      <div class="map-heading">
+        <p class="section-index">02 / INTEGRATION MAP</p>
+        <h2 id="map-title">See the complete<br><em>contract chain.</em></h2>
+        <p>Every relationship keeps its source location, detection method, confidence, Git revision, and latest verification.</p>
+      </div>
+      <div class="map-flow" aria-label="Frontend call connects through API contract and backend implementation to database schema and tests">
+        <article><span>01</span><strong>Consumer call</strong><small>useInvoices.ts:41</small></article>
+        <i>→</i>
+        <article><span>02</span><strong>API contract</strong><small>POST /api/invoices</small></article>
+        <i>→</i>
+        <article class="map-alert"><span>03</span><strong>Validator</strong><small>UUID expected</small></article>
+        <i>→</i>
+        <article><span>04</span><strong>Database</strong><small>customers.id uuid</small></article>
+        <i>→</i>
+        <article><span>05</span><strong>Native test</strong><small>invoices.test.ts</small></article>
+      </div>
+      <div class="health-key"><span><i class="healthy"></i> Healthy</span><span><i class="changed"></i> Changed</span><span><i class="failing"></i> Mismatch</span><span><i class="uncertain"></i> Uncertain</span></div>
     </section>
 
     <section class="capabilities" id="capabilities" aria-labelledby="capabilities-title">
       <div class="section-heading">
-        <p class="section-index">02 / THE TOOLKIT</p>
-        <h2 id="capabilities-title">One workspace.<br><em>Every signal.</em></h2>
-        <p>Less context switching. More answers. AI-PI handles the full API feedback loop from first call to final fix.</p>
+        <p class="section-index">03 / THE DIFFERENCE</p>
+        <h2 id="capabilities-title">More than<br><em>send + receive.</em></h2>
+        <p>The request builder is the starting point. Integration intelligence is the product.</p>
       </div>
       <div class="feature-grid">
         <article class="feature feature-large dark">
           <div class="feature-number">01</div>
           <div class="mini-terminal">
-            <div><span class="method small">GET</span><code>/v1/users/42</code><span class="ok">200</span></div>
-            <div><span class="method small purple">POST</span><code>/v1/orders</code><span class="ok">201</span></div>
-            <div><span class="method small amber">PATCH</span><code>/v1/profile</code><span class="warn">422</span></div>
+            <div><span class="method small">CALL</span><code>apps/web</code><span class="ok">12</span></div>
+            <div><span class="method small purple">ROUTE</span><code>apps/api</code><span class="ok">13</span></div>
+            <div><span class="method small amber">DRIFT</span><code>contracts</code><span class="warn">2</span></div>
           </div>
-          <div><p class="tag">BUILD + SEND</p><h3>Requests that stay reusable.</h3><p>Compose auth, params, headers, bodies, certificates, and scripts. Save the useful ones. Run them again from UI or AI.</p></div>
+          <div><p class="tag">DISCOVER + MAP</p><h3>Your application, understood.</h3><p>Scan Next.js, Express, and Supabase projects. Match frontend calls to routes, validators, schemas, tests, and historical runs—with confidence and source evidence.</p></div>
         </article>
         <article class="feature lime">
           <div class="feature-number">02</div>
           <div class="spark-icon">✦</div>
-          <div><p class="tag">UNDERSTAND</p><h3>Failures, translated.</h3><p>Turn confusing responses into a diagnosis, likely cause, and practical next move.</p></div>
+          <div><p class="tag">DIAGNOSE</p><h3>Evidence before correction.</h3><p>Combine request, response, source, schema, logs, Git changes, and the last successful run into a reviewable fix plan.</p></div>
         </article>
         <article class="feature blue">
           <div class="feature-number">03</div>
           <div class="nodes" aria-hidden="true"><i></i><i></i><i></i><i></i><span></span><b></b></div>
-          <div><p class="tag">AUTOMATE</p><h3>Flows, not fragments.</h3><p>Chain requests, extract values, retry safely, and preserve the evidence for your next iteration.</p></div>
+          <div><p class="tag">VERIFY</p><h3>Tests that outlive the tool.</h3><p>Generate framework-native regression tests, run affected APIs, and prove the entire contract is synchronized.</p></div>
         </article>
       </div>
     </section>
 
     <section class="workflow" id="workflow" aria-labelledby="workflow-title">
       <div class="workflow-intro">
-        <p class="section-index">03 / WORKFLOW</p>
-        <h2 id="workflow-title">From unknown<br>to <em>understood.</em></h2>
+        <p class="section-index">04 / CORE WORKFLOW</p>
+        <h2 id="workflow-title">From source<br>to <em>certainty.</em></h2>
       </div>
       <ol class="workflow-list">
-        <li><span>01</span><div><h3>Bring your API</h3><p>Import OpenAPI or start with a URL. AI-PI organizes endpoints, environments, and variables.</p></div><b>↗</b></li>
-        <li><span>02</span><div><h3>Run the real flow</h3><p>Send a request or execute a dependent collection with assertions and value extraction.</p></div><b>↗</b></li>
-        <li><span>03</span><div><h3>Fix with context</h3><p>Give Codex the exact response, timing, history, and diagnosis it needs to repair the issue.</p></div><b>↗</b></li>
+        <li><span>01</span><div><h3>Scan the workspace</h3><p>Discover consumer calls, routes, validators, database schemas, and existing tests directly from source.</p></div><b>↗</b></li>
+        <li><span>02</span><div><h3>Map the integration</h3><p>Normalize every layer into one contract model and expose healthy, changed, missing, and mismatched relationships.</p></div><b>↗</b></li>
+        <li><span>03</span><div><h3>Reproduce + diagnose</h3><p>Execute locally, collect timing and logs, then build a probable root cause from deterministic evidence.</p></div><b>↗</b></li>
+        <li><span>04</span><div><h3>Correct + verify</h3><p>Review the proposed fix, generate a native regression test, and confirm the contract from frontend through database.</p></div><b>↗</b></li>
       </ol>
     </section>
 
     <section class="agent-bridge">
       <div class="bridge-copy">
-        <p class="section-index light">BUILT FOR TWO KINDS OF BUILDERS</p>
-        <h2>You drive.<br><em>AI copilots.</em></h2>
-        <p>The same workspace powers a hands-on dashboard and native tools for Codex and ChatGPT. Ask, inspect, test, diagnose—without copying a single response.</p>
+        <p class="section-index light">ONE CORE. EVERY AGENT.</p>
+        <h2>You review.<br><em>Agents execute.</em></h2>
+        <p>Use the same repository-native context from Codex, Cursor, Copilot, or any MCP client. AI-PI stays out of the chat business and gives your existing agent better tools, clearer evidence, and firm approval boundaries.</p>
       </div>
       <div class="bridge-diagram" aria-label="AI-PI connects developers, AI agents, and APIs">
         <div class="bridge-node human"><span>YOU</span><small>Developer</small></div>
         <div class="bridge-lines"><i></i><i></i></div>
         <div class="bridge-core"><span class="brand-mark"><i></i><i></i></span><strong>AI-PI</strong><small>Shared context</small></div>
         <div class="bridge-lines"><i></i><i></i></div>
-        <div class="bridge-node agent"><span>✦</span><small>AI Agent</small></div>
-        <div class="api-target">{ API }</div>
+        <div class="bridge-node agent"><span>✦</span><small>Any MCP agent</small></div>
+        <div class="api-target">{ SOURCE → TEST }</div>
       </div>
     </section>
 
     <section class="closing">
-      <p class="eyebrow"><span></span> Make the invisible visible</p>
-      <h2>Stop guessing.<br><em>Start forging.</em></h2>
-      <p>Your APIs already tell a story. AI-PI helps you read it—and act on it.</p>
-      <a class="button button-dark" href="#demo">Explore AI-PI <span>↗</span></a>
+      <p class="eyebrow"><span></span> Local core. Open workflow. Verified result.</p>
+      <h2>Find the drift.<br><em>Prove the fix.</em></h2>
+      <p>No account required for local use. Your source stays local, your definitions stay in Git, and your generated tests run without AI-PI.</p>
+      <a class="button button-dark" href="#demo">See the evidence <span>↗</span></a>
     </section>
   </main>
 
   <footer>
     <a class="brand footer-brand" href="#top"><span class="brand-mark"><i></i><i></i></span><span>AI-PI</span></a>
-    <p>AI Programming Interface<br><span>Forged from API Forge.</span></p>
-    <div><a href="#why">Product</a><a href="#capabilities">Capabilities</a><a href="#workflow">Workflow</a></div>
+    <p>AI Programming Interface<br><span>From API Forge.</span></p>
+    <div><a href="#why">Product</a><a href="#integration-map">Integration Map</a><a href="#workflow">Workflow</a></div>
     <a class="back-top" href="#top">Back to top ↑</a>
   </footer>
   <script src="/app.js"></script>
