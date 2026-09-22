@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Evidence — AIPI</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <header class="site-header"><a class="brand" href="/"><span class="brand-mark"><i></i><i></i></span><span>AIPI</span></a><nav><a href="/">Home</a><a href="integration-map.html">Map</a><a href="workflow.html">Workflow</a><a href="security.html">Security</a></nav><a class="header-cta" href="login.html">Sign in ↗</a></header>
+  <main class="page-shell evidence-page">
+    <section class="page-hero"><p class="eyebrow"><span></span> See the evidence</p><h1>Diagnosis you can review, not a guess you have to trust.</h1><p>When an API fails, AIPI assembles the smallest useful evidence bundle before an agent proposes a correction. Every conclusion points back to source, runtime output, or a previous verified run.</p></section>
+    <section class="evidence-layout">
+      <article class="evidence-console"><div class="console-bar"><span>diagnosis / create invoice</span><span class="console-status">● LOCAL RUN</span></div><div class="console-row"><span class="console-label">REQUEST</span><code>POST /api/invoices</code><b class="console-bad">422</b></div><div class="console-row"><span class="console-label">CONSUMER</span><code>src/hooks/useInvoices.ts:41</code><strong>customerId: 2048 <em>number</em></strong></div><div class="console-row"><span class="console-label">VALIDATOR</span><code>app/api/invoices/schema.ts:18</code><strong>customerId: z.string().uuid() <em>UUID</em></strong></div><div class="console-row"><span class="console-label">SCHEMA</span><code>supabase/migrations/20260918_customer_uuid.sql</code><strong>customers.id <em>uuid</em></strong></div><div class="console-result"><span>ROOT CAUSE</span><strong>Frontend payload disagrees with validator and database schema.</strong><b>94% confidence</b></div></article>
+      <aside class="evidence-sidebar"><p class="tag">What the agent receives</p><ul><li><strong>Failure</strong><span>HTTP status, body, headers, timing, and assertions</span></li><li><strong>Sources</strong><span>Relevant files, lines, schemas, tests, and Git changes</span></li><li><strong>Plan</strong><span>Affected files, risks, approval steps, and verification</span></li><li><strong>Guardrails</strong><span>Redacted evidence and confirmation before mutations</span></li></ul></aside>
+    </section>
+    <section class="content-grid evidence-principles"><article class="content-card dark"><span class="tag">01 / Observe</span><h2>Reproduce locally</h2><p>Capture the original failure without hiding it behind an automatic retry or a cloud relay.</p></article><article class="content-card"><span class="tag">02 / Explain</span><h2>Show the chain</h2><p>Compare consumer, route, validator, schema, logs, and the last successful run.</p></article><article class="content-card"><span class="tag">03 / Prove</span><h2>Generate the test</h2><p>Turn the accepted fix into a deterministic native regression test that runs without AIPI.</p></article></section>
+  </main>
+</body>
+</html>

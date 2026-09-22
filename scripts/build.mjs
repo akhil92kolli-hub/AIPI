@@ -9,7 +9,7 @@ const client = path.join(dist, "client");
 await fs.rm(dist, { recursive: true, force: true });
 await fs.mkdir(path.join(dist, "server"), { recursive: true });
 await fs.mkdir(client, { recursive: true });
-await Promise.all(["index.html", "product.html", "roadmap.html", "integration-map.html", "workflow.html", "security.html", "plans.html", "login.html", "styles.css", "app.js", "auth.js"].map((file) => fs.copyFile(path.join(root, file), path.join(client, file))));
+await Promise.all(["index.html", "product.html", "roadmap.html", "integration-map.html", "workflow.html", "evidence.html", "security.html", "plans.html", "login.html", "styles.css", "app.js", "auth.js"].map((file) => fs.copyFile(path.join(root, file), path.join(client, file))));
 await fs.writeFile(path.join(client, "config.js"), `window.AIPI_CONFIG = ${JSON.stringify({
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? ""
