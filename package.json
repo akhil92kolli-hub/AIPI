@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "deploy": "npm run build && npx wrangler deploy"
+    "deploy": "npm run build && npx wrangler deploy --config ./wrangler.jsonc --no-autoconfig"
   },
   "devDependencies": {
     "wrangler": "^4.136.2"

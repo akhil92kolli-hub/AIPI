@@ -15,7 +15,10 @@ The production site is generated in `dist/client`, with the Worker entry point a
 Use these Git build settings:
 
 - Build command: `npm run build`
-- Deploy command: `npx wrangler deploy`
+- Deploy command: `npm run deploy`
 - Root directory: `/`
 
-Do not deploy with `--assets .`; that uploads the repository root and can include `node_modules`. The checked-in `wrangler.jsonc` restricts static assets to `dist/client`.
+The deploy script explicitly selects `wrangler.jsonc` and disables auto-configuration.
+That configuration restricts static assets to `dist/client`. Do not add
+`--assets .` to the deploy command: it uploads the repository root and can include
+large dependency binaries such as `node_modules/workerd/bin/workerd`.
