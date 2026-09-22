@@ -1,6 +1,6 @@
 # AI-PI
 
-AI-PI is the API Forge product showcase: from failing API to verified code fix.
+AIPI (AI-Programming Interface) is the product showcase: from failing API to verified code fix.
 
 ## Build
 
