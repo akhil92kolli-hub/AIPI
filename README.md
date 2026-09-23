@@ -53,6 +53,9 @@ AIPI is local-first by design. Cloudflare hosts the public website, documentatio
 Install the companion:
 
 ```bash
+npm config set @akhil92kolli-hub:registry https://npm.pkg.github.com
+# Authenticate with a GitHub classic token that has read:packages.
+npm login --scope=@akhil92kolli-hub --registry=https://npm.pkg.github.com
 npm install -g @akhil92kolli-hub/aipi-companion
 aipi open
 ```

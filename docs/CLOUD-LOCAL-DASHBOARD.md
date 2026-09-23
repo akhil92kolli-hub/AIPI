@@ -52,6 +52,9 @@ Install AIPI from its plugin marketplace entry, then start a new Codex task. The
 ### CLI and other MCP editors
 
 ```bash
+npm config set @akhil92kolli-hub:registry https://npm.pkg.github.com
+# Authenticate with a GitHub classic token that has read:packages.
+npm login --scope=@akhil92kolli-hub --registry=https://npm.pkg.github.com
 npm install --global @akhil92kolli-hub/aipi-companion
 aipi open
 ```
