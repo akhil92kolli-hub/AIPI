@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { readRepositoryProject, writeRepositoryProject } from "../../collection-schema/index.mjs";
 import { diffFrontendBackend, generateObservedVitest, guardNextProject, traceNextRoute } from "../../contract-engine/index.mjs";
 import { diagnoseTraffic, readTraffic, startTrafficProxy } from "../../local-observer/index.mjs";
+import { executeRequest } from "../../../scripts/api-forge-server.mjs";
+import { startDashboard } from "../../../scripts/dashboard-server.mjs";
+
+const execFileAsync = promisify(execFile);
 
 function usage() {
-  return `AIPI CLI\n\nUsage:\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n`;
+  return `AIPI CLI\n\nUsage:\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://app.aipi.dev]\n  aipi dev [--app https://app.aipi.dev]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n`;
 }
 
 function option(args, name, fallback) {
@@ -32,6 +38,21 @@ async function main() {
     const proxy = await startTrafficProxy({ target, root, port });
     process.stdout.write(`${JSON.stringify({ proxy: proxy.url, target: proxy.target, cache: proxy.cache }, null, 2)}\n`);
     const close = async () => { await proxy.close(); process.exit(0); };
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+    return;
+  }
+  if (command === "open" || command === "dev") {
+    const dashboard = await startDashboard({ executeRequest });
+    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://app.aipi.dev");
+    const url = `${app}?port=${dashboard.port}&token=${encodeURIComponent(dashboard.token)}`;
+    process.stdout.write(`AIPI Local Companion active on ${dashboard.url}\nOpening ${url}\n`);
+    if (command === "open") {
+      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+      const openerArgs = process.platform === "win32" ? ["/c", "start", url] : [url];
+      await execFileAsync(opener, openerArgs);
+    }
+    const close = () => dashboard.server.close(() => process.exit(0));
     process.once("SIGINT", close);
     process.once("SIGTERM", close);
     return;

@@ -2,14 +2,18 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { addHistory, defaultProject, defaultRequest, loadState, mutateState, newId, publicState, saveState, variablesFor } from "./workspace-store.mjs";
+import { captureGitEvidence } from "../packages/core/git-evidence.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const UI_DIR = path.join(ROOT, "ui");
-const PORT = Number(process.env.API_FORGE_PORT || 43127);
+const PORT = Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
 const HOST = "127.0.0.1";
 let dashboardUrl = `http://${HOST}:${PORT}`;
+const sessionToken = process.env.AIPI_TOKEN || `sec_${crypto.randomBytes(18).toString("base64url")}`;
+const allowedOrigin = process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev";
 
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8" };
 
@@ -421,7 +425,8 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
     title: entry.status === "missing-backend" ? `No backend route found for ${entry.method} ${entry.path}` : `No frontend consumer found for ${entry.method} ${entry.path}`,
     integrationId: entry.id
   }));
-  const scan = { roots, scanStatus: "complete", lastScannedAt: new Date().toISOString(), filesScanned, frameworks: [...frameworks], endpoints, frontendCalls, integrations, schemas, findings };
+  const git = await Promise.all(roots.map(async (root) => ({ ...(await captureGitEvidence(root.path)), requestedRoot: root.path })));
+  const scan = { roots, git, scanStatus: "complete", lastScannedAt: new Date().toISOString(), filesScanned, frameworks: [...frameworks], endpoints, frontendCalls, integrations, schemas, findings };
   await mutateState((state) => {
     const project = state.projects.find((entry) => entry.id === projectId);
     if (!project) throw new Error("Project not found");
@@ -437,9 +442,12 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
 
 export async function startDashboard({ executeRequest }) {
   const server = http.createServer(async (request, response) => {
-    response.setHeader("access-control-allow-origin", "*");
-    response.setHeader("access-control-allow-headers", "content-type");
+    const origin = request.headers.origin;
+    response.setHeader("access-control-allow-origin", origin === allowedOrigin || origin?.startsWith("http://127.0.0.1:") ? origin : allowedOrigin);
+    response.setHeader("access-control-allow-headers", "authorization, content-type");
     response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
+    response.setHeader("access-control-allow-private-network", "true");
+    response.setHeader("vary", "Origin");
     if (request.method === "OPTIONS") {
       response.writeHead(204);
       response.end();
@@ -447,6 +455,8 @@ export async function startDashboard({ executeRequest }) {
     }
     const url = new URL(request.url, dashboardUrl);
     try {
+      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? PORT, token: sessionToken, companion: "local", protocol: "http-loopback" });
+      if (url.pathname.startsWith("/api/") && url.pathname !== "/api/connection" && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
       if (request.method === "GET" && url.pathname === "/api/state") return json(response, 200, publicState(await loadState()));
       if (request.method === "PUT" && url.pathname === "/api/state") {
         const state = await bodyJson(request); await saveState(state); return json(response, 200, { ok: true });
@@ -490,7 +500,7 @@ export async function startDashboard({ executeRequest }) {
         const log = state.history.find((item) => item.id === payload.logId);
         return log ? json(response, 200, diagnosisFor(log.result)) : json(response, 404, { error: "Log not found" });
       }
-      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl });
+      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server.address()?.port ?? PORT });
       if (request.method === "GET") {
         const relative = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
         const target = path.resolve(UI_DIR, relative);
@@ -509,7 +519,7 @@ export async function startDashboard({ executeRequest }) {
     server.listen(PORT, HOST, () => { dashboardUrl = `http://${HOST}:${server.address().port}`; resolve(); });
     server.once("error", (error) => { if (error.code === "EADDRINUSE") resolve(); });
   });
-  return { server, url: dashboardUrl };
+  return { server, url: dashboardUrl, token: sessionToken, port: server.address()?.port ?? PORT };
 }
 
 export { dashboardUrl, diagnosisFor, executeSaved, importOpenApi };

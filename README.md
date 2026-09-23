@@ -30,7 +30,7 @@ The implementation decisions, evidence pipeline, deferred adapters, and two-engi
 
 ## Dashboard
 
-Ask Codex to **open my AIPI dashboard**, or run `npm run dashboard` while developing the plugin. Open the returned loopback URL in Codex's browser panel and toggle that panel while coding. The Project, APIs, Map, and Runs routes include:
+Ask Codex to **open my AIPI dashboard**, run `aipi open`, or run `npm run dashboard` while developing the plugin. Open the returned loopback URL in Codex's browser panel and toggle that panel while coding. The Project, APIs, Map, and Logs routes include:
 
 - Projects, requests, environments, and variables
 - Bearer, Basic, and API-key authentication
@@ -44,7 +44,7 @@ Ask Codex to **open my AIPI dashboard**, or run `npm run dashboard` while develo
 - Automatic recognition of common frontend calls, backend routes, database tables, and integration gaps
 - A living Project summary separating backend problems, frontend corrections, schema issues, evidence freshness, goals, tasks, and iteration history
 
-The dashboard binds only to `127.0.0.1` and defaults to `http://127.0.0.1:43127`.
+The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts the companion, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters.
 
 ## Deployment and installation model
 

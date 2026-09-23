@@ -10,16 +10,40 @@ let apiFilter = "all";
 let saveTimer;
 let bridgeRequestId = 1;
 const bridgeRequests = new Map();
+let localConnection = null;
 
 function apiOrigin() {
-  return window.__API_FORGE_ORIGIN__ ?? "";
+  const params = new URLSearchParams(location.search);
+  return window.__API_FORGE_ORIGIN__ ?? (params.get("port") ? `http://127.0.0.1:${Number(params.get("port"))}` : "");
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(`${apiOrigin()}${path}`, { headers: { "content-type": "application/json", ...(options.headers ?? {}) }, ...options });
+  const headers = { "content-type": "application/json", ...(options.headers ?? {}) };
+  if (localConnection?.token) headers.authorization = `Bearer ${localConnection.token}`;
+  const response = await fetch(`${apiOrigin()}${path}`, { headers, ...options });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
   return payload;
+}
+
+async function connectLocalCompanion() {
+  const params = new URLSearchParams(location.search);
+  const suppliedToken = params.get("token");
+  if (suppliedToken) {
+    localConnection = { connected: true, token: suppliedToken, companion: "local", port: params.get("port") };
+    try { sessionStorage.setItem("aipi:local-token", suppliedToken); } catch {}
+  }
+  if (!localConnection?.token) {
+    try {
+      const rememberedToken = sessionStorage.getItem("aipi:local-token");
+      if (rememberedToken) localConnection = { connected: true, token: rememberedToken, companion: "local" };
+    } catch {}
+  }
+  const response = await fetch(`${apiOrigin()}/api/connection`);
+  const connection = await response.json();
+  if (!response.ok) throw new Error(connection.error || `Companion connection failed (${response.status})`);
+  localConnection = { ...connection, token: localConnection?.token || connection.token };
+  try { sessionStorage.setItem("aipi:local-token", localConnection.token); } catch {}
 }
 
 function bridgeRequest(method, params) {
@@ -244,6 +268,7 @@ function codexContext(action = "contextual") {
     source: {
       roots: (source.roots ?? []).map((entry) => ({ kind: entry.kind, path: entry.path })),
       lastScannedAt: source.lastScannedAt ?? null,
+      git: (source.git ?? []).map((entry) => ({ root: entry.requestedRoot ?? entry.root, commit: entry.commit, branch: entry.branch, dirty: entry.dirty })),
       filesScanned: source.filesScanned ?? 0,
       frameworks: source.frameworks ?? [],
       inventory: { endpoints: source.endpoints?.length ?? 0, frontendCalls: source.frontendCalls?.length ?? 0, schemas: source.schemas?.length ?? 0, integrations: source.integrations?.length ?? 0 },
@@ -301,7 +326,7 @@ function shell(content, currentRoute) {
     <div class="app-shell">
       <header class="mobile-header">
         <button class="header-home ${activeRoot === "home" ? "active" : ""}" data-route="home" ${activeRoot === "home" ? 'aria-current="page"' : ""}>Home</button>
-        <div class="header-actions"><button class="header-upgrade" id="upgradeButton">Upgrade</button><button class="header-settings" id="settingsButton">Settings</button></div>
+        <div class="header-actions"><span class="connection-pill ${localConnection?.connected ? "connected" : ""}">${localConnection?.connected ? "Local companion" : "Disconnected"}</span><button class="header-upgrade" id="upgradeButton">Upgrade</button><button class="header-settings" id="settingsButton">Settings</button></div>
       </header>
       <main class="route-view" data-route-name="${esc(currentRoute.name)}">${content}</main>
       <button class="chat-launcher" data-codex-action="contextual" aria-label="Send this screen's context to Codex chat"><span class="chat-spark">✦</span><span class="chat-label">Ask Codex</span></button>
@@ -528,10 +553,11 @@ function renderProjectSummary() {
   const source = current.sourceContext ?? {};
   const tasks = current.summary?.tasks ?? [];
   const intelligence = projectCorrections(current);
+  const gitEvidence = source.git?.[0];
   const correctionCard = (label, items, empty) => `<article class="correction-card"><div><p class="eyebrow">${label}</p><strong>${items.length}</strong></div>${items.length ? `<div class="correction-list">${items.slice(0, 3).map((entry) => `<div><span class="severity-dot ${entry.severity === "high" ? "danger" : "warning"}"></span><p><b>${esc(entry.title)}</b><small>${esc(entry.evidence)}</small></p></div>`).join("")}</div>` : `<p class="correction-empty">${empty}</p>`}</article>`;
   return `
     <section class="summary-heading"><div><p class="eyebrow">Project summary</p><h2>${intelligence.status === "needs-attention" ? `${intelligence.count} correction${intelligence.count === 1 ? "" : "s"} need review` : intelligence.status === "insufficient-evidence" ? "Evidence is not complete yet" : "Current evidence is aligned"}</h2><p>Backend, frontend, and schema status derived from source scans and observed traffic.</p></div><button class="primary-button" data-codex-action="plan-project">Plan with Codex</button></section>
-    <section class="evidence-strip"><div><span>Last source scan</span><strong>${formatDate(source.lastScannedAt)}</strong></div><div><span>Traced runs</span><strong>${intelligence.tracedRuns}</strong></div><div><span>Contract comparisons</span><strong>${intelligence.contractDiffs}</strong></div></section>
+    <section class="evidence-strip"><div><span>Last source scan</span><strong>${formatDate(source.lastScannedAt)}</strong></div><div><span>Scanned revision</span><strong>${gitEvidence?.available ? `${esc(gitEvidence.commit?.slice(0, 8) ?? "unknown")}${gitEvidence.dirty ? " · changed" : ""}` : "Git unavailable"}</strong></div><div><span>Traced runs</span><strong>${intelligence.tracedRuns}</strong></div><div><span>Contract comparisons</span><strong>${intelligence.contractDiffs}</strong></div></section>
     <section class="correction-grid">${correctionCard("Backend problems", intelligence.corrections.backend, source.lastScannedAt ? "No backend problem detected in current evidence." : "Scan backend source to establish requirements.")}${correctionCard("Frontend corrections", intelligence.corrections.frontend, source.lastScannedAt ? "No frontend correction detected in current evidence." : "Connect frontend source to compare API usage.")}${correctionCard("Schema issues", intelligence.corrections.schema, source.schemas?.length ? "No schema drift detected in traced responses." : "Connect schema files to validate response contracts.")}</section>
     <section class="section-block"><p class="eyebrow">Project goal</p><textarea id="projectGoal" class="goal-input" aria-label="Project goal">${esc(current.summary?.goal ?? "")}</textarea></section>
     <section class="section-block"><div class="section-heading"><div><p class="eyebrow">Detected architecture</p><h2>${source.frameworks?.length ? source.frameworks.join(", ") : "Scan source to detect libraries"}</h2></div></div><div class="summary-grid"><div><strong>${source.endpoints?.length ?? 0}</strong><span>Backend endpoints</span></div><div><strong>${source.frontendCalls?.length ?? 0}</strong><span>Frontend calls</span></div><div><strong>${source.schemas?.length ?? 0}</strong><span>Database objects</span></div><div><strong>${source.integrations?.filter((entry) => entry.status === "healthy").length ?? 0}</strong><span>Verified matches</span></div></div></section>
@@ -573,7 +599,7 @@ function sourceRootRow(entry) {
 
 function openVariablesModal() {
   const env = environment();
-  openModal("Environment variables", `<label class="field-label">Environment name<input class="field" id="environmentName" value="${esc(env.name)}"></label><div id="environmentVariables">${keyRows(env.variables ?? [], "environment")}</div><p class="supporting-copy">Secrets are masked in reports. Remove credentials before sharing plugin data.</p>`, "Save variables", async () => {
+  openModal("Environment variables", `<label class="field-label">Environment name<input class="field" id="environmentName" value="${esc(env.name)}"></label><div id="environmentVariables">${keyRows(env.variables ?? [], "environment")}</div><p class="supporting-copy">Secret variables are stored in your OS credential vault and represented by opaque references in the local workspace. They stay redacted in agent reports and exports.</p>`, "Save variables", async () => {
     env.name = $("#environmentName").value.trim() || env.name;
     await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
     render();
@@ -623,7 +649,7 @@ function openSettingsModal() {
   try { startRoute = localStorage.getItem("aipi:startRoute") || "home"; } catch {}
   openModal("Settings", `<p class="modal-intro">Choose how AIPI opens in this Codex panel. Project data and run evidence remain local.</p>
     <label class="field-label">Start screen<select class="field" id="startRouteSetting"><option value="home" ${startRoute === "home" ? "selected" : ""}>Home</option><option value="project" ${startRoute === "project" ? "selected" : ""}>Current project</option></select></label>
-    <div class="settings-note"><span>Storage</span><strong>Local workspace</strong></div>
+    <div class="settings-note"><span>Storage</span><strong>Local workspace + OS credential vault</strong></div>
     <div class="settings-note"><span>Current project</span><strong>${esc(project().name)}</strong></div>`, "Save settings", async () => {
     try { localStorage.setItem("aipi:startRoute", $("#startRouteSetting").value); } catch {}
     toast("Settings saved");
@@ -782,6 +808,7 @@ window.addEventListener("hashchange", render);
 window.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && route().name === "request") { event.preventDefault(); runRequest(); } });
 
 async function init() {
+  await connectLocalCompanion();
   state = await api("/api/state");
   let rememberedProjectId;
   try { rememberedProjectId = localStorage.getItem("api-forge:selectedProject"); } catch {}
