@@ -14,19 +14,24 @@
     </nav>
     <a class="header-cta" href="/login.html">Open dashboard</a>
   </header>
-  <main class="page-shell">
+  <main class="page-shell install-page">
     <section class="page-hero">
-      <p class="eyebrow">Cloud UI · Local engine</p>
+      <p class="eyebrow"><span></span> Cloud UI · Local engine</p>
       <h1>Install AIPI where your code lives.</h1>
-      <p>Cloudflare hosts the website and dashboard shell. The AIPI Companion runs locally with your MCP server, source code, requests, and logs.</p>
+      <p>Get from zero to a connected local workspace in under a minute. The cloud UI gives you a polished view; the companion keeps source, credentials, requests, and evidence on your machine.</p>
+      <div class="hero-actions"><a class="button button-dark" href="#quickstart">Start the quickstart <span>↓</span></a><a class="text-link" href="docs.html">Read documentation ↗</a></div>
     </section>
-    <section class="content-grid">
+    <section class="quickstart-banner" id="quickstart">
+      <div><p class="eyebrow">Recommended path</p><h2>One command to open the local-first workflow.</h2></div>
+      <pre><code>npx aipi open</code></pre>
+      <p>Run it from your project root. AIPI starts the companion on loopback, creates a short-lived token, and opens the dashboard.</p>
+    </section>
+    <section class="content-grid install-grid">
       <article class="content-card">
         <p class="eyebrow">01 · Install</p>
         <h2>Install the local companion</h2>
-        <pre><code>npm install -g @aipi/companion
-aipi status
-aipi dashboard</code></pre>
+        <pre><code>npm install -g aipi
+npx aipi open</code></pre>
         <p>The companion binds to loopback by default. It does not open your project to the public internet.</p>
       </article>
       <article class="content-card">
@@ -36,29 +41,38 @@ aipi dashboard</code></pre>
   "mcpServers": {
     "aipi": {
       "command": "aipi",
-      "args": ["mcp", "start"]
+      "args": ["mcp"]
     }
   }
 }</code></pre>
         <p>Codex or another supported IDE uses MCP over stdio. The agent remains in control of repository changes.</p>
       </article>
       <article class="content-card">
-        <p class="eyebrow">03 · Pair</p>
-        <h2>Pair the cloud dashboard</h2>
-        <ol class="step-list"><li>Sign in at <strong>aipi.website</strong>.</li><li>Choose <strong>Connect local companion</strong>.</li><li>Approve the short-lived pairing code shown by <code>aipi connect</code>.</li><li>Choose a project folder locally.</li></ol>
-        <p>The cloud UI can request approved local operations, but it cannot execute arbitrary shell commands.</p>
+        <p class="eyebrow">03 · Connect</p>
+        <h2>Open the cloud-rendered dashboard</h2>
+        <ol class="step-list"><li><code>aipi open</code> starts the loopback companion.</li><li>A short-lived local session token is generated.</li><li>The hosted dashboard opens with the local port and token.</li><li>The browser talks directly to <code>127.0.0.1</code>; API work remains local.</li></ol>
+        <p>The current release uses direct authenticated loopback. An optional outbound pairing bridge is a later enterprise phase.</p>
+      </article>
+      <article class="content-card accent-card">
+        <p class="eyebrow">04 · Prerequisites</p>
+        <h2>What you need</h2>
+        <div class="check-list"><p>✓ Node.js 20 or newer</p><p>✓ A local JavaScript or TypeScript project</p><p>✓ Cursor, Windsurf, Claude Desktop, or another MCP client (optional)</p><p>✓ No account, database, or Docker required for the local core</p></div>
       </article>
       <article class="content-card">
-        <p class="eyebrow">Data boundary</p>
+        <p class="eyebrow">05 · Data boundary</p>
         <h2>Local by default</h2>
         <div class="check-list"><p>✓ Source code and credentials stay local</p><p>✓ API execution and response bodies stay local</p><p>✓ Logs and evidence stay in the local workspace</p><p>○ Optional contract metadata can be synchronized for teams</p></div>
       </article>
+    </section>
+    <section class="install-modes">
+      <div><p class="eyebrow">Choose your mode</p><h2>Start local.<br><em>Scale when ready.</em></h2></div>
+      <div class="mode-list"><article><b>LOCAL</b><h3>Private development</h3><p>Everything runs on your machine. Best for day-to-day debugging and sensitive repositories.</p></article><article><b>TEAM</b><h3>Shared contracts</h3><p>Synchronize selected contract metadata while keeping source, credentials, and response bodies local.</p></article><article><b>CI</b><h3>Continuous verification</h3><p>Run discovery, request checks, and regression tests in pull requests without changing your runtime.</p></article></div>
     </section>
     <section class="callout">
       <p class="eyebrow">Current release</p>
       <h2>Start locally today; add cloud pairing when enabled for your workspace.</h2>
       <p>The local dashboard and MCP server work without an account. Cloud pairing is an additive connection layer, not a requirement for local API intelligence.</p>
-      <a class="primary-button" href="/dashboard/">Open the dashboard ↗</a>
+      <div class="hero-actions"><a class="primary-button" href="/dashboard/">Open the dashboard ↗</a><a class="text-link" href="docs.html">Troubleshooting &amp; reference ↗</a></div>
     </section>
   </main>
 </body>

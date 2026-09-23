@@ -12,7 +12,7 @@ await fs.rm(dist, { recursive: true, force: true });
 await fs.mkdir(path.join(dist, "server"), { recursive: true });
 await fs.mkdir(client, { recursive: true });
 await fs.mkdir(dashboard, { recursive: true });
-await Promise.all(["index.html", "product.html", "roadmap.html", "integration-map.html", "workflow.html", "evidence.html", "security.html", "plans.html", "login.html", "install.html", "styles.css", "app.js", "auth.js", "aipi-logo.svg"].map((file) => fs.copyFile(path.join(root, file), path.join(client, file))));
+await Promise.all(["index.html", "product.html", "roadmap.html", "integration-map.html", "workflow.html", "evidence.html", "security.html", "plans.html", "login.html", "install.html", "docs.html", "styles.css", "app.js", "auth.js", "aipi-logo.svg"].map((file) => fs.copyFile(path.join(root, file), path.join(client, file))));
 await Promise.all(["app.js", "styles.css"].map((file) => fs.copyFile(path.join(dashboardSource, file), path.join(dashboard, file))));
 const dashboardIndex = await fs.readFile(path.join(dashboardSource, "index.html"), "utf8");
 await fs.writeFile(path.join(dashboard, "index.html"), dashboardIndex.replace('href="/styles.css"', 'href="/dashboard/styles.css"').replace('src="/app.js"', 'src="/dashboard/app.js"'));
