@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { hydrateStateSecrets, protectStateSecrets } from "../packages/core/secret-vault.mjs";
+import { appendTimelineEvent, migrateTimeline } from "../packages/core/timeline.mjs";
 
 const DATA_DIR = (process.env.AIPI_DATA || process.env.API_FORGE_DATA) && (process.env.AIPI_DATA || process.env.API_FORGE_DATA) !== "${PLUGIN_DATA}"
   ? (process.env.AIPI_DATA || process.env.API_FORGE_DATA)
@@ -33,7 +35,7 @@ export function defaultProject(name = "My API") {
     requests: [defaultRequest("Health check")],
     sourceContext: {
       roots: [], scanStatus: "not-scanned", lastScannedAt: null, filesScanned: 0,
-      frameworks: [], endpoints: [], frontendCalls: [], integrations: [], schemas: [], findings: []
+      frameworks: [], endpoints: [], frontendCalls: [], integrations: [], schemas: [], findings: [], git: []
     },
     summary: {
       goal: "Map, test, and verify this project's API integrations.",
@@ -52,7 +54,7 @@ function normalizeProject(project) {
     ...project,
     sourceContext: {
       roots: [], scanStatus: "not-scanned", lastScannedAt: null, filesScanned: 0,
-      frameworks: [], endpoints: [], frontendCalls: [], integrations: [], schemas: [], findings: [],
+      frameworks: [], endpoints: [], frontendCalls: [], integrations: [], schemas: [], findings: [], git: [],
       ...sourceContext
     },
     summary: {
@@ -65,16 +67,22 @@ function normalizeProject(project) {
 
 function initialState() {
   const project = defaultProject("Starter project");
-  return { version: 1, activeProjectId: project.id, projects: [project], history: [], activity: [] };
+  const state = { version: 2, activeProjectId: project.id, projects: [project], history: [], activity: [], handoffs: [], timeline: [] };
+  appendTimelineEvent(state, { projectId: project.id, type: "project", actor: "aipi", title: "Project created", summary: `${project.name} is ready for source discovery and API testing.`, tags: ["local"] });
+  return state;
 }
 
 export async function loadState() {
   try {
-    const state = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    const persistedState = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
+    const state = await hydrateStateSecrets(persistedState);
     state.projects = (state.projects ?? []).map(normalizeProject);
     state.activeProjectId = state.projects.some((entry) => entry.id === state.activeProjectId) ? state.activeProjectId : state.projects[0]?.id;
     state.history ??= [];
     state.activity ??= [];
+    state.handoffs ??= [];
+    state.timeline = migrateTimeline(state);
+    state.version = Math.max(Number(state.version) || 1, 2);
     return state;
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
@@ -85,8 +93,9 @@ export async function loadState() {
 }
 
 export async function saveState(state) {
-  const snapshot = `${JSON.stringify(state, null, 2)}\n`;
   saveQueue = saveQueue.catch(() => {}).then(async () => {
+    const protectedState = await protectStateSecrets(state);
+    const snapshot = `${JSON.stringify(protectedState, null, 2)}\n`;
     await fs.mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
     const temporary = `${DATA_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
     await fs.writeFile(temporary, snapshot, { mode: 0o600 });
@@ -106,6 +115,17 @@ export async function addHistory(entry) {
   return mutateState((state) => {
     state.history.unshift({ id: newId("log"), createdAt: new Date().toISOString(), ...entry });
     state.history = state.history.slice(0, 500);
+    const log = state.history[0];
+    const result = log.result ?? {};
+    appendTimelineEvent(state, {
+      id: `evt_${log.id}`, projectId: log.projectId, createdAt: log.createdAt, type: "run",
+      severity: result.ok && result.passed !== false && !result.error ? "success" : "danger", actor: "aipi",
+      title: `${log.requestName || "API request"} ${result.ok && result.passed !== false && !result.error ? "succeeded" : "failed"}`,
+      summary: result.status ? `HTTP ${result.status} · ${log.method} ${log.url}` : (result.error || `${log.method} ${log.url}`),
+      tags: [log.method, result.status ? `HTTP ${result.status}` : "network"].filter(Boolean),
+      source: { kind: "run", ref: log.id, requestId: log.requestId },
+      evidence: { status: result.status ?? null, elapsedMs: result.elapsed_ms ?? null, attempts: result.attempts ?? 1, assertionsPassed: (result.assertions ?? []).filter((assertion) => assertion.passed).length, assertionsTotal: (result.assertions ?? []).length, diagnosis: result.diagnosis?.category ?? null, contractStatus: result.contractDiff?.status ?? null }
+    });
     return state.history[0];
   });
 }
@@ -117,7 +137,7 @@ export function variablesFor(project, override = {}) {
 }
 
 export function publicState(state) {
-  return state;
+  return { ...state, timeline: (state.timeline ?? []).slice(0, 500) };
 }
 
 export { DATA_DIR, DATA_FILE };

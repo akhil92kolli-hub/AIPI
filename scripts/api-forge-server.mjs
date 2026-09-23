@@ -15,6 +15,10 @@ import { writeRegressionTest } from "../packages/test-generators/index.mjs";
 import { diffFrontendBackend, generateObservedVitest, traceNextRoute, validatePayloadAgainstTrace } from "../packages/contract-engine/index.mjs";
 import { diagnoseTraffic, readTraffic } from "../packages/local-observer/index.mjs";
 import { checkBlastRadius, registryFromEnvironment } from "../packages/remote-registry/index.mjs";
+import { projectGitFreshness } from "../packages/core/git-evidence.mjs";
+import { redactStateSecrets, secretStorageStatus } from "../packages/core/secret-vault.mjs";
+import { appendTimelineEvent, timelineForProject } from "../packages/core/timeline.mjs";
+import { createHandoff } from "../packages/core/handoff.mjs";
 
 const SERVER = { name: "api-forge", version: "0.3.0" };
 const PROTOCOL_VERSION = "2025-11-25";
@@ -152,6 +156,20 @@ export const tools = [
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
+    name: "get_project_timeline",
+    title: "Get project evidence timeline",
+    description: "Read a bounded chronological ledger of API runs, source scans, configuration changes, agent decisions, contract checks, and CI evidence for one project.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" }, types: { type: "array", items: { type: "string", enum: ["run", "scan", "change", "agent", "contract", "decision", "project", "security", "ci"] } }, before: { type: "string", description: "Optional ISO timestamp cursor for older events." }, limit: { type: "integer", minimum: 1, maximum: 200, default: 50 } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "record_project_event",
+    title: "Record project timeline event",
+    description: "Append a concise, redacted agent decision or implementation change to the local AIPI project timeline so future analysis can use it as evidence.",
+    inputSchema: { type: "object", required: ["project_id", "type", "title", "summary"], properties: { project_id: { type: "string" }, type: { type: "string", enum: ["agent", "change", "contract", "decision", "security", "ci"] }, title: { type: "string", maxLength: 240 }, summary: { type: "string", maxLength: 2000 }, severity: { type: "string", enum: ["success", "info", "warning", "danger"], default: "info" }, actor: { type: "string", maxLength: 80, default: "agent" }, tags: { type: "array", maxItems: 12, items: { type: "string", maxLength: 60 } }, files: { type: "array", maxItems: 50, items: { type: "string" } }, commit: { type: "string" }, evidence: { type: "object", additionalProperties: true } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  {
     name: "get_endpoint_context",
     title: "Get endpoint integration context",
     description: "Return one endpoint's implementation, frontend consumers, schemas, saved requests, source evidence, and confidence.",
@@ -236,6 +254,13 @@ export const tools = [
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
+    name: "run_correction_workflow",
+    title: "Prepare or verify an API correction workflow",
+    description: "Bundle the failing evidence, Git freshness, affected files, and a regression fixture for the AI editor. After code changes, optionally rerun the saved request and compare the new evidence with the original failure.",
+    inputSchema: { type: "object", required: ["log_id"], properties: { log_id: { type: "string" }, verify_after_changes: { type: "boolean", default: false }, allow_state_change: { type: "boolean", default: false } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+  },
+  {
     name: "generate_regression_test",
     title: "Generate native regression test",
     description: "Write a new Vitest or Jest test for a saved request inside a configured project source root. Never overwrites an existing file.",
@@ -255,6 +280,13 @@ export const tools = [
     description: "Export project metadata, environments without secret values, and saved requests to a .api-forge directory under a configured source root.",
     inputSchema: { type: "object", required: ["project_id", "root"], properties: { project_id: { type: "string" }, root: { type: "string" } }, additionalProperties: false },
     annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "get_secret_storage_status",
+    title: "Get local secret storage status",
+    description: "Report whether AIPI can protect saved credentials with the operating system credential store. Never returns credential values or enumerates stored secrets.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
     name: "open_dashboard",
@@ -317,6 +349,27 @@ export const tools = [
     description: "Retry the saved request associated with an API Forge log, applying its retry policy and recording a new log.",
     inputSchema: { type: "object", required: ["log_id"], properties: { log_id: { type: "string" }, max_attempts: { type: "integer", minimum: 1, maximum: 10, default: 2 } }, additionalProperties: false },
     annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+  },
+  {
+    name: "create_handoff",
+    title: "Create IDE agent handoff",
+    description: "Create a concise, redacted local handoff from saved API evidence for a project agent or IDE chat.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" }, log_id: { type: "string" }, endpoint_id: { type: "string" } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  {
+    name: "get_latest_handoff",
+    title: "Get latest IDE agent handoff",
+    description: "Retrieve the latest open AIPI handoff so an IDE agent can continue the issue from local evidence.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "complete_handoff",
+    title: "Complete IDE agent handoff",
+    description: "Record the agent's progress and verification result for an AIPI handoff.",
+    inputSchema: { type: "object", required: ["handoff_id", "status"], properties: { handoff_id: { type: "string" }, status: { type: "string", enum: ["in_progress", "completed", "blocked"] }, message: { type: "string" }, verification: { type: "object" } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: true }
   }
 ];
 
@@ -733,6 +786,14 @@ export async function callTool(name, args) {
     return toolResult(report, summary, !passed);
   }
 
+  if (name === "get_secret_storage_status") {
+    const status = await secretStorageStatus();
+    const summary = status.available
+      ? `Saved credentials are protected by ${status.provider}; plaintext fallback is disabled.`
+      : "No supported OS credential store is available. AIPI will refuse to persist new credentials.";
+    return toolResult({ status }, summary);
+  }
+
   if (name === "open_dashboard") {
     return toolResult({ url: dashboardRuntime.url, mode: "inspection" }, `API Forge is ready. Inspect saved setup and evidence in the dashboard; continue active work in Codex chat.`);
   }
@@ -755,6 +816,25 @@ export async function callTool(name, args) {
     return context ? toolResult({ context }, `${context.endpoint.method} ${context.endpoint.path}: ${context.consumers.length} consumer(s), ${context.schemas.length} schema object(s), confidence ${context.evidence.confidence}.`) : toolResult({ error: "Endpoint not found" }, "Endpoint not found.", true);
   }
 
+  if (name === "get_project_timeline") {
+    const state = await loadState();
+    const project = findProject(state, args?.project_id);
+    if (!project) return toolResult({ error: "Project not found" }, "Project not found.", true);
+    const events = timelineForProject(state, project.id, { types: args?.types, before: args?.before, limit: args?.limit ?? 50 });
+    const summary = { total: events.length, failures: events.filter((event) => event.severity === "danger").length, changes: events.filter((event) => ["change", "agent", "decision"].includes(event.type)).length, newestAt: events[0]?.createdAt ?? null, oldestAt: events.at(-1)?.createdAt ?? null };
+    return toolResult({ project: { id: project.id, name: project.name }, events, summary, next_before: events.at(-1)?.createdAt ?? null }, `${events.length} timeline events: ${summary.failures} failures and ${summary.changes} recorded changes.`);
+  }
+
+  if (name === "record_project_event") {
+    let event;
+    await mutateState((state) => {
+      const project = findProject(state, args?.project_id);
+      if (!project) throw new Error("Project not found");
+      event = appendTimelineEvent(state, { projectId: project.id, type: args.type, severity: args.severity ?? "info", actor: args.actor ?? "agent", title: args.title, summary: args.summary, tags: args.tags ?? [], source: { kind: "agent", files: args.files ?? [], commit: args.commit ?? null }, evidence: args.evidence ?? {} });
+    });
+    return toolResult({ event }, `Recorded ${event.type} event in the project timeline: ${event.title}.`);
+  }
+
   if (name === "list_integration_issues") {
     const state = await loadState();
     const project = findProject(state, args?.project_id);
@@ -771,6 +851,7 @@ export async function callTool(name, args) {
       created = { ...defaultRequest(args.name), id: newId("req"), name: args.name, method: args.method, url: args.url, assertions: args.assertions ?? [], docs: args.documentation ?? "" };
       project.requests.push(created);
       project.updatedAt = new Date().toISOString();
+      appendTimelineEvent(state, { projectId: project.id, type: "change", severity: "info", actor: "agent", title: "API request created", summary: `${created.method} ${created.url} saved as ${created.name}.`, tags: [created.method], source: { kind: "mcp", requestId: created.id }, evidence: { assertions: created.assertions.length } });
     });
     return toolResult({ request: created }, `Created ${created.method} ${created.url} as ${created.name}.`);
   }
@@ -891,6 +972,45 @@ export async function callTool(name, args) {
     return toolResult({ plan }, `${plan.probableRootCause} Review ${plan.affectedFiles.length} affected file(s) before mutation.`);
   }
 
+  if (name === "run_correction_workflow") {
+    const state = await loadState();
+    const original = state.history.find((entry) => entry.id === args?.log_id);
+    const project = findProject(state, original?.projectId);
+    const request = project?.requests.find((entry) => entry.id === original?.requestId);
+    if (!original || !project || !request) return toolResult({ error: "Run, project, or saved request not found" }, "Correction workflow could not resolve the original run and saved request.", true);
+    const plan = buildFixPlan(project, original, contextForLog(project, original));
+    const freshness = await projectGitFreshness(project.sourceContext);
+    const payload = responsePayload(original.result ?? {});
+    const generated = payload === undefined ? null : generateFixtureContent(payload, { format: "typescript", name: `${request.name}Fixture`, method: request.method, route: original.result?.request?.url ?? original.url });
+    const bundle = {
+      phase: args?.verify_after_changes ? "verification" : "ready-for-editor",
+      originalRunId: original.id,
+      projectId: project.id,
+      requestId: request.id,
+      freshness,
+      plan,
+      regressionFixture: generated ? { suggestedPath: `fixtures/${String(request.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "api"}.fixture.${generated.extension}`, content: generated.content, writesFiles: false } : null,
+      editorInstructions: ["Review the evidence and affected files.", "Apply the smallest frontend, backend, or schema correction in the AI editor.", "Add the generated regression fixture or native test.", "Call run_correction_workflow again with verify_after_changes=true."],
+      verification: null
+    };
+    if (!args?.verify_after_changes) {
+      await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "agent", severity: "warning", actor: "aipi", title: "Correction workflow prepared", summary: `${plan.affectedFiles.length} affected file${plan.affectedFiles.length === 1 ? "" : "s"} identified from run ${original.id}.`, tags: [freshness.status, request.method], source: { kind: "correction-workflow", ref: original.id, files: plan.affectedFiles }, evidence: { probableRootCause: plan.probableRootCause, confidence: plan.confidence, requiresApproval: plan.requiresApproval } }));
+      return toolResult({ workflow: bundle }, `Correction bundle ready for ${plan.affectedFiles.length} affected file(s). Evidence freshness: ${freshness.status}. Apply changes in the editor, then verify this workflow.`);
+    }
+    const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
+    if (unsafe && args?.allow_state_change !== true) return toolResult({ workflow: bundle, error: "State-changing verification requires allow_state_change=true" }, `Verification blocked: ${request.method} can change state. Obtain explicit authorization before rerunning.`, true);
+    const result = await executeSaved(executeRequest, project, request, { maxAttempts: 1 });
+    const current = await addHistory({ projectId: project.id, requestId: request.id, requestName: request.name, method: request.method, url: request.url, result, verification: { originalRunId: original.id, git: freshness } });
+    const comparison = compareRunEvidence(original, current);
+    const refreshedState = await loadState();
+    const refreshedProject = findProject(refreshedState, project.id);
+    const issues = integrationIssues(refreshedProject, refreshedState.history);
+    bundle.phase = comparison.regression ? "regression" : comparison.recovered || (result.ok && result.passed !== false) ? "verified" : "still-failing";
+    bundle.verification = { runId: current.id, comparison, passed: Boolean(result.ok && result.passed !== false), status: result.status ?? null, openIssues: issues };
+    await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "contract", severity: bundle.phase === "verified" ? "success" : bundle.phase === "regression" ? "danger" : "warning", actor: "aipi", title: bundle.phase === "verified" ? "Correction verified" : "Correction needs more work", summary: `Compared verification run ${current.id} with ${original.id}: ${bundle.phase}.`, tags: [bundle.phase, request.method], source: { kind: "correction-workflow", ref: current.id, previousRef: original.id }, evidence: { comparison, status: result.status ?? null, openIssueCount: issues.length } }));
+    return toolResult({ workflow: bundle }, `${bundle.phase}: HTTP ${result.status ?? "error"}; ${comparison.recovered ? "the request recovered" : comparison.regression ? "a regression was detected" : "the new run was compared with the original"}.`, bundle.phase !== "verified");
+  }
+
   if (name === "generate_regression_test") {
     const state = await loadState();
     const project = findProject(state, args?.project_id);
@@ -899,6 +1019,7 @@ export async function callTool(name, args) {
     const root = configuredRoot(project, args.root);
     const environment = variablesFor(project);
     const target = await writeRegressionTest({ root, target: args.target, request, environment: { baseUrl: environment.baseUrl }, framework: args.framework ?? "vitest" });
+    await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "change", severity: "success", actor: "agent", title: "Regression test generated", summary: `${args.framework ?? "vitest"} coverage generated for ${request.method} ${request.url}.`, tags: [args.framework ?? "vitest", request.method], source: { kind: "generated-test", files: [target], requestId: request.id }, evidence: { target } }));
     return toolResult({ target, framework: args.framework ?? "vitest" }, `Generated a native regression test at ${target}.`);
   }
 
@@ -908,7 +1029,8 @@ export async function callTool(name, args) {
     if (!project) return toolResult({ error: "Project not found" }, "Project not found.", true);
     const issues = integrationIssues(project, state.history);
     const latestRuns = (project.requests ?? []).map((request) => state.history.find((entry) => entry.projectId === project.id && entry.requestId === request.id)).filter(Boolean);
-    const report = { projectId: project.id, lastScanAt: project.sourceContext?.lastScannedAt ?? null, integrations: project.sourceContext?.integrations ?? [], issues, latestRuns: latestRuns.map((entry) => ({ id: entry.id, requestId: entry.requestId, passed: Boolean(entry.result?.ok && entry.result?.passed !== false), status: entry.result?.status ?? null })) };
+    const freshness = await projectGitFreshness(project.sourceContext);
+    const report = { projectId: project.id, lastScanAt: project.sourceContext?.lastScannedAt ?? null, freshness, integrations: project.sourceContext?.integrations ?? [], issues, latestRuns: latestRuns.map((entry) => ({ id: entry.id, requestId: entry.requestId, passed: Boolean(entry.result?.ok && entry.result?.passed !== false), status: entry.result?.status ?? null })) };
     return toolResult({ report }, `${report.integrations.filter((entry) => entry.status === "healthy").length} healthy integrations, ${issues.length} open issues, ${report.latestRuns.filter((entry) => entry.passed).length}/${report.latestRuns.length} latest runs passing.`);
   }
 
@@ -936,13 +1058,14 @@ export async function callTool(name, args) {
     const source = project.sourceContext ?? {};
     const history = state.history.filter((entry) => entry.projectId === project.id);
     const intelligence = summarizeProjectEvidence(project, history);
+    const freshness = await projectGitFreshness(source);
     const summary = {
       project: { id: project.id, name: project.name, description: project.description, goal: project.summary?.goal },
       libraries: project.summary?.libraries ?? [], tasks: project.summary?.tasks ?? [], iterations: project.summary?.iterations ?? [],
       inventory: { endpoints: source.endpoints?.length ?? 0, frontend_calls: source.frontendCalls?.length ?? 0, integrations: source.integrations?.length ?? 0, schemas: source.schemas?.length ?? 0, runs: history.length },
       health: { healthy: source.integrations?.filter((entry) => entry.status === "healthy").length ?? 0, findings: source.findings?.length ?? 0, last_scan: source.lastScannedAt ?? null, status: intelligence.status },
       corrections: intelligence.corrections,
-      evidence: intelligence.evidence,
+      evidence: { ...intelligence.evidence, freshness },
       recommended_next_actions: intelligence.recommendedNextActions
     };
     return toolResult({ summary }, `${project.name}: ${summary.health.status}. Backend ${summary.corrections.backend.length}, frontend ${summary.corrections.frontend.length}, schema ${summary.corrections.schema.length}; ${summary.inventory.endpoints} endpoints and ${summary.inventory.runs} observed runs.`);
@@ -967,6 +1090,7 @@ export async function callTool(name, args) {
     await mutateState((state) => {
       state.projects.push(newProject);
       state.activeProjectId = newProject.id;
+      appendTimelineEvent(state, { projectId: newProject.id, type: "project", severity: "success", actor: "agent", title: "Project created", summary: `${newProject.name} was created with the ${newProject.environments[0].name} environment.`, tags: [newProject.environments[0].name], source: { kind: "mcp" }, evidence: { environmentCount: 1, requestCount: newProject.requests.length, sourceRoots: args?.roots?.length ?? 0 } });
     });
     if (args?.roots?.length) await scanProjectSource(newProject.id, args.roots);
     return toolResult({ project: newProject }, `Created and selected project ${newProject.name}${args?.roots?.length ? ` with ${args.roots.length} source root(s)` : ""}.`);
@@ -985,7 +1109,8 @@ export async function callTool(name, args) {
   if (name === "get_project") {
     const state = await loadState();
     const project = state.projects.find((item) => item.id === args?.project_id);
-    return project ? toolResult({ project }, `Loaded project ${project.name}.`) : toolResult({ error: "Project not found" }, "Project not found.", true);
+    const redactedProject = project ? redactStateSecrets({ projects: [project] }).projects[0] : null;
+    return redactedProject ? toolResult({ project: redactedProject }, `Loaded project ${project.name}; saved credentials are redacted.`) : toolResult({ error: "Project not found" }, "Project not found.", true);
   }
 
   if (name === "get_history") {
@@ -1011,6 +1136,44 @@ export async function callTool(name, args) {
     const result = await executeSaved(executeRequest, project, savedRequest, { maxAttempts: args?.max_attempts ?? 2 });
     const retryLog = await addHistory({ projectId: project.id, requestId: savedRequest.id, requestName: savedRequest.name, method: savedRequest.method, url: savedRequest.url, result, retryOf: log.id });
     return toolResult({ result, log_id: retryLog.id }, result.error ? `Retry failed: ${result.error}` : requestSummary(result), Boolean(result.error || !result.passed));
+  }
+
+  if (name === "create_handoff") {
+    let created;
+    await mutateState((state) => {
+      const project = findProject(state, args?.project_id);
+      if (!project) throw new Error("Project not found");
+      const log = args?.log_id ? state.history.find((entry) => entry.id === args.log_id && entry.projectId === project.id) : state.history.find((entry) => entry.projectId === project.id);
+      if (!log) throw new Error("No saved API evidence found for this project");
+      const context = contextForLog(project, log);
+      created = createHandoff({ project, log, context, diagnosis: diagnosisFor(log.result) });
+      state.handoffs ??= [];
+      state.handoffs.unshift({ ...created.handoff, markdown: created.markdown });
+      state.handoffs = state.handoffs.slice(0, 100);
+      appendTimelineEvent(state, { projectId: project.id, type: "agent", severity: "info", actor: "aipi", title: "IDE handoff created", summary: `${created.handoff.title} is ready for the project agent.`, tags: ["handoff", "agent"], source: { kind: "handoff", ref: created.handoff.id, logId: log.id }, evidence: { files: created.handoff.evidence.files } });
+    });
+    return toolResult({ handoff: created.handoff, markdown: created.markdown }, `Created handoff ${created.handoff.id}. Retrieve it from your IDE agent with get_latest_handoff.`);
+  }
+
+  if (name === "get_latest_handoff") {
+    const state = await loadState();
+    const handoff = state.handoffs?.find((entry) => entry.projectId === args?.project_id && ["open", "in_progress"].includes(entry.status));
+    return handoff ? toolResult({ handoff }, `Latest AIPI handoff: ${handoff.title}. Status: ${handoff.status}.`) : toolResult({ error: "No open handoff found" }, "No open AIPI handoff found.", true);
+  }
+
+  if (name === "complete_handoff") {
+    let updated;
+    await mutateState((state) => {
+      const handoff = state.handoffs?.find((entry) => entry.id === args?.handoff_id);
+      if (!handoff) throw new Error("Handoff not found");
+      handoff.status = args.status;
+      handoff.updatedAt = new Date().toISOString();
+      handoff.agentMessage = args.message ?? null;
+      handoff.verification = args.verification ?? null;
+      updated = handoff;
+      appendTimelineEvent(state, { projectId: handoff.projectId, type: "agent", severity: args.status === "completed" ? "success" : args.status === "blocked" ? "danger" : "info", actor: "agent", title: `IDE handoff ${args.status.replace("_", " ")}`, summary: args.message ?? `Agent updated ${handoff.id}.`, tags: ["handoff", args.status], source: { kind: "handoff", ref: handoff.id }, evidence: args.verification ?? {} });
+    });
+    return toolResult({ handoff: updated }, `Handoff ${updated.id} marked ${updated.status}.`);
   }
 
   return toolResult({ error: `Unknown tool: ${name}` }, `Unknown tool: ${name}`, true);

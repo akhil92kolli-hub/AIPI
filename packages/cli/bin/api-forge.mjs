@@ -2,17 +2,22 @@
 
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { readRepositoryProject, writeRepositoryProject } from "../../collection-schema/index.mjs";
 import { diffFrontendBackend, generateObservedVitest, guardNextProject, traceNextRoute } from "../../contract-engine/index.mjs";
 import { diagnoseTraffic, readTraffic, startTrafficProxy } from "../../local-observer/index.mjs";
 import { executeRequest } from "../../../scripts/api-forge-server.mjs";
 import { startDashboard } from "../../../scripts/dashboard-server.mjs";
+import { callTool } from "../../../scripts/api-forge-server.mjs";
 
 const execFileAsync = promisify(execFile);
 
 function usage() {
-  return `AIPI CLI\n\nUsage:\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://app.aipi.dev]\n  aipi dev [--app https://app.aipi.dev]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n`;
+  return `AIPI CLI\n\nUsage:\n  aipi mcp\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://app.aipi.dev/dashboard/]\n  aipi dev [--app http://localhost:8788/dashboard/]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n    aipi handoff latest [project-id]
+    aipi handoff copy <handoff-id>
+  `;
 }
 
 function option(args, name, fallback) {
@@ -26,10 +31,53 @@ async function main() {
     process.stdout.write(usage());
     return;
   }
+  if (command === "mcp") {
+    const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+    const scriptsDirectory = path.basename(currentDirectory) === "scripts" ? currentDirectory : path.resolve(currentDirectory, "../../../scripts");
+    const serverPath = path.join(scriptsDirectory, "aipi-mcp-bundle.mjs");
+    const child = spawn(process.execPath, [serverPath], { stdio: "inherit", env: process.env });
+    const signal = (name) => { if (!child.killed) child.kill(name); };
+    process.once("SIGINT", () => signal("SIGINT"));
+    process.once("SIGTERM", () => signal("SIGTERM"));
+    const exitCode = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code) => resolve(code ?? 0)); });
+    process.exitCode = exitCode;
+    return;
+  }
   if (command === "inspect") {
     const result = await readRepositoryProject(path.resolve(args[0] ?? "."));
     process.stdout.write(`${JSON.stringify({ project: result.project, requests: result.requests.map((entry) => ({ id: entry.id, name: entry.name, method: entry.request.method, url: entry.request.url })) }, null, 2)}\n`);
     return;
+  }
+  if (command === "handoff") {
+    const action = args[0] ?? "latest";
+    const projectId = args[1];
+    if (action === "latest") {
+      const state = await (await import("../../../scripts/workspace-store.mjs")).loadState();
+      const id = projectId ?? state.activeProjectId;
+      const result = await callTool("get_latest_handoff", { project_id: id });
+      process.stdout.write(`${result.structuredContent?.handoff?.markdown ?? result.content?.[0]?.text ?? "No open AIPI handoff found."}\n`);
+      return;
+    }
+    if (action === "copy") {
+      const handoffId = args[1];
+      if (!handoffId) throw new Error("handoff copy requires <handoff-id>");
+      const state = await (await import("../../../scripts/workspace-store.mjs")).loadState();
+      const handoff = state.handoffs?.find((entry) => entry.id === handoffId);
+      if (!handoff) throw new Error(`Handoff not found: ${handoffId}`);
+      const clipboard = process.platform === "darwin" ? "pbcopy" : process.platform === "win32" ? "clip" : "xclip";
+      try {
+        const child = spawn(clipboard, [], { stdio: ["pipe", "ignore", "ignore"] });
+        child.stdin.end(handoff.markdown);
+        await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`Clipboard command exited with ${code}`))); });
+        process.stdout.write(`Copied ${handoffId} to the clipboard.\n`);
+      } catch (error) {
+        process.stdout.write(`${handoff.markdown}\n`);
+        process.stderr.write(`Clipboard unavailable: ${error.message}\n`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    throw new Error(`Unknown handoff action: ${action}`);
   }
   if (command === "observe") {
     const target = option(args, "--target");
@@ -44,7 +92,7 @@ async function main() {
   }
   if (command === "open" || command === "dev") {
     const dashboard = await startDashboard({ executeRequest });
-    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://app.aipi.dev");
+    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://app.aipi.dev/dashboard/");
     const url = `${app}?port=${dashboard.port}&token=${encodeURIComponent(dashboard.token)}`;
     process.stdout.write(`AIPI Local Companion active on ${dashboard.url}\nOpening ${url}\n`);
     if (command === "open") {

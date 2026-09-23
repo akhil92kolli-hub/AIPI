@@ -7,6 +7,7 @@ let state;
 let selectedProjectId;
 let selectedRequestId;
 let apiFilter = "all";
+let timelineFilter = "all";
 let saveTimer;
 let bridgeRequestId = 1;
 const bridgeRequests = new Map();
@@ -99,10 +100,24 @@ function toast(message) {
   setTimeout(() => node.classList.remove("show"), 2200);
 }
 
+function mergeRecordedEvent(result) {
+  if (!result?.event || (state.timeline ?? []).some((event) => event.id === result.event.id)) return;
+  state.timeline ??= [];
+  state.timeline.unshift(result.event);
+}
+
+async function persistState() {
+  const result = await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+  mergeRecordedEvent(result);
+  return result;
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    try { await api("/api/state", { method: "PUT", body: JSON.stringify(state) }); }
+    try {
+      await persistState();
+    }
     catch (error) { toast(`Save failed: ${error.message}`); }
   }, 320);
 }
@@ -181,38 +196,11 @@ function runRow(entry) {
 }
 
 function activityRows(current) {
-  const source = current.sourceContext ?? {};
-  const runs = state.history.filter((entry) => entry.projectId === current.id).map((entry) => ({
-    id: entry.id,
-    kind: "run",
-    title: entry.result?.ok && entry.result?.passed !== false ? `${entry.requestName} succeeded` : `${entry.requestName} failed`,
-    detail: entry.result?.status ? `HTTP ${entry.result.status} · ${entry.method} ${entry.url}` : (entry.result?.error || `${entry.method} ${entry.url}`),
-    createdAt: entry.createdAt,
-    tone: entry.result?.ok && entry.result?.passed !== false ? "success" : "danger",
-    route: `run/${entry.id}`
-  }));
-  const discovered = (source.endpoints ?? []).map((entry) => ({
-    id: `api-${entry.id}`,
-    kind: "api",
-    title: "New API discovered",
-    detail: `${entry.method} ${entry.path} · ${entry.source ?? "source scan"}`,
-    createdAt: source.lastScannedAt,
-    tone: "info"
-  }));
-  const changes = (state.activity ?? []).filter((entry) => entry.projectId === current.id).map((entry) => ({
-    id: entry.id,
-    kind: entry.kind ?? "agent",
-    title: entry.title ?? "Agent activity",
-    detail: entry.detail ?? entry.summary ?? "A concise project activity was recorded.",
-    createdAt: entry.createdAt,
-    tone: entry.tone ?? "info",
-    route: entry.route
-  }));
-  return [...runs, ...discovered, ...changes].filter((entry) => entry.createdAt).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return (state.timeline ?? []).filter((entry) => entry.projectId === current.id).map((entry) => ({ id: entry.id, kind: entry.type, title: entry.title, detail: entry.summary, createdAt: entry.createdAt, tone: entry.severity, route: entry.source?.kind === "run" ? undefined : entry.source?.route })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
 function activityRow(entry) {
-  const label = entry.kind === "run" ? "Run" : entry.kind === "api" ? "API" : entry.kind === "mcp" ? "MCP" : entry.kind === "project" ? "Project" : "Agent";
+  const label = ({ run: "Run", scan: "Scan", change: "Change", agent: "Agent", contract: "Contract", decision: "Decision", project: "Project", security: "Security", ci: "CI" })[entry.kind] ?? "Event";
   const target = entry.route ? `data-route="${entry.route}"` : "";
   return `<button class="activity-row" ${target}><span class="activity-kind ${entry.tone}">${label}</span><span class="activity-copy"><strong>${esc(entry.title)}</strong><small>${esc(entry.detail)}</small></span><time datetime="${esc(entry.createdAt)}">${esc(formatDate(entry.createdAt))}</time></button>`;
 }
@@ -317,6 +305,43 @@ async function sendToCodex(action = "contextual") {
     console.warn("AIPI could not reach the Codex chat bridge", error);
   }
   await copyCodexContext(prompt);
+}
+
+async function copyHandoff(log) {
+  const result = log?.result ?? {};
+  const suggestions = result.diagnosis?.suggestions ?? [
+    "Inspect the endpoint context and affected consumers.",
+    "Compare the observed request with the source contract.",
+    "Make the smallest safe correction and add a regression test.",
+    "Re-run the request through AIPI and verify the result."
+  ];
+  const markdown = [
+    `## AIPI Handoff: ${result.diagnosis?.category ?? "API integration issue"}`,
+    "",
+    "### Problem",
+    result.diagnosis?.summary ?? result.error ?? `Request returned HTTP ${result.status ?? "an unexpected result"}.`,
+    "",
+    "### Evidence",
+    `- Log: \`${log.id}\``,
+    `- Request: \`${log.method} ${log.url}\``,
+    `- Result: \`${result.status ? `HTTP ${result.status}` : result.error ?? "not available"}\``,
+    "",
+    "### Recommended action",
+    ...suggestions.map((entry, index) => `${index + 1}. ${entry}`),
+    "",
+    "Use the AIPI MCP tools to inspect authoritative local evidence. Keep credentials and full response bodies out of the handoff.",
+    "",
+    `Handoff log ID: \`${log.id}\``
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(markdown);
+    toast("Handoff copied for your IDE agent");
+  } catch {
+    openModal("AIPI handoff", `<p class="modal-intro">Paste this redacted handoff into your project agent chat.</p><textarea class="code-input codex-prompt" readonly>${esc(markdown)}</textarea>`, "Copy handoff", async () => {
+      await navigator.clipboard.writeText(markdown);
+      toast("Handoff copied");
+    });
+  }
 }
 
 function shell(content, currentRoute) {
@@ -523,10 +548,47 @@ function renderAssertions(assertions) {
   return `<div class="assertion-list">${assertions.map((entry, index) => `<div class="assertion-row"><select data-test-type="${index}"><option value="status" ${entry.type === "status" ? "selected" : ""}>Status</option><option value="json_path" ${entry.type === "json_path" ? "selected" : ""}>JSON path</option><option value="header" ${entry.type === "header" ? "selected" : ""}>Header</option><option value="response_time" ${entry.type === "response_time" ? "selected" : ""}>Response time</option></select><input data-test-target="${index}" value="${esc(entry.path ?? entry.name ?? "")}" placeholder="Target"><input data-test-expected="${index}" value="${esc(entry.equals ?? entry.less_than_ms ?? "")}" placeholder="Expected"><button class="remove-button" data-test-remove="${index}">Remove</button></div>`).join("")}</div><button class="quiet-button add-row-button" id="addAssertionButton">Add assertion</button>`;
 }
 
+function timelineTypeLabel(type) {
+  return ({ run: "Run", scan: "Scan", change: "Change", agent: "Agent", contract: "Contract", decision: "Decision", project: "Project", security: "Security", ci: "CI" })[type] ?? "Event";
+}
+
+function timelineDay(value) {
+  const date = new Date(value);
+  const today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const key = date.toDateString();
+  if (key === today.toDateString()) return "Today";
+  if (key === yesterday.toDateString()) return "Yesterday";
+  return new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" }).format(date);
+}
+
+function compactEvidence(value) {
+  const entries = Object.entries(value ?? {}).filter(([, entry]) => entry !== null && entry !== undefined && entry !== "" && (!Array.isArray(entry) || entry.length));
+  if (!entries.length) return "";
+  return `<dl class="event-evidence">${entries.slice(0, 10).map(([key, entry]) => `<div><dt>${esc(key.replace(/([A-Z])/g, " $1"))}</dt><dd>${esc(typeof entry === "object" ? JSON.stringify(entry) : entry)}</dd></div>`).join("")}</dl>`;
+}
+
+function inlineRunEvidence(event) {
+  const log = state.history.find((entry) => entry.id === event.source?.ref);
+  if (!log) return "";
+  const result = log.result ?? {};
+  const body = result.json ? JSON.stringify(result.json, null, 2) : String(result.body ?? result.error ?? "No response body");
+  return `<div class="inline-run-evidence"><div class="run-metrics"><span><b>${result.status ?? "—"}</b>HTTP status</span><span><b>${result.elapsed_ms ?? "—"}</b>Latency ms</span><span><b>${(result.assertions ?? []).filter((assertion) => assertion.passed).length}/${result.assertions?.length ?? 0}</b>Assertions</span></div><p>${esc(result.diagnosis?.summary ?? "Runtime evidence captured locally.")}</p><pre>${esc(body.slice(0, 2400))}${body.length > 2400 ? "\n… bounded preview" : ""}</pre><div class="event-actions"><button class="quiet-button" data-route="request/${esc(log.requestId)}">Open API</button><button class="quiet-button" data-rerun-log="${esc(log.id)}">Run again</button></div></div>`;
+}
+
+function timelineEvent(event) {
+  return `<details class="project-event severity-${esc(event.severity)}"><summary><span class="event-marker" aria-hidden="true"></span><span class="event-main"><span class="event-meta"><b>${esc(timelineTypeLabel(event.type))}</b><span>${esc(event.actor)}</span><time datetime="${esc(event.createdAt)}">${esc(formatDate(event.createdAt))}</time></span><strong>${esc(event.title)}</strong><small>${esc(event.summary)}</small>${event.tags?.length ? `<span class="event-tags">${event.tags.map((tag) => `<i>${esc(tag)}</i>`).join("")}</span>` : ""}</span><span class="event-expand">⌄</span></summary><div class="event-body">${event.type === "run" ? inlineRunEvidence(event) : ""}${compactEvidence(event.evidence)}${event.source?.files?.length ? `<div class="event-files"><span>Affected files</span>${event.source.files.slice(0, 20).map((file) => `<code>${esc(file)}</code>`).join("")}</div>` : ""}</div></details>`;
+}
+
 function renderLogs() {
   const current = project();
-  const entries = activityRows(current);
-  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Local activity</p><h1>Logs</h1><p>Concise evidence from failed runs, agent actions, MCP context, project changes, and new APIs.</p></div><button class="primary-button" data-codex-action="review-runs">Review with Codex</button></section><section class="activity-list">${entries.length ? entries.map(activityRow).join("") : `<div class="empty-message"><h3>No logs yet</h3><p>Run an API, scan source, or continue with Codex to start building a useful activity trail.</p><button class="secondary-button" data-route="apis">Open APIs</button></div>`}</section>`;
+  const allEvents = (state.timeline ?? []).filter((entry) => entry.projectId === current.id);
+  const filters = [{ id: "all", label: "All" }, { id: "run", label: "Runs" }, { id: "change", label: "Changes" }, { id: "scan", label: "Scans" }, { id: "agent", label: "Agent" }, { id: "attention", label: "Needs attention" }];
+  const entries = allEvents.filter((event) => timelineFilter === "all" || event.type === timelineFilter || (timelineFilter === "change" && ["change", "project", "decision", "contract"].includes(event.type)) || (timelineFilter === "agent" && ["agent", "decision"].includes(event.type)) || (timelineFilter === "attention" && ["warning", "danger"].includes(event.severity)));
+  const grouped = entries.reduce((groups, event) => { const day = timelineDay(event.createdAt); (groups[day] ??= []).push(event); return groups; }, {});
+  const failureCount = allEvents.filter((event) => event.severity === "danger").length;
+  const changeCount = allEvents.filter((event) => ["change", "agent", "decision", "contract", "project"].includes(event.type)).length;
+  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Project source of truth</p><h1>Timeline</h1><p>Every meaningful run, source scan, configuration update, agent decision, contract verification, and CI signal—recorded locally as evidence for future analysis.</p></div><button class="primary-button" data-codex-action="review-runs">Analyze with Codex</button></section><section class="timeline-overview" aria-label="Timeline summary"><div><strong>${allEvents.length}</strong><span>Total events</span></div><div><strong>${allEvents.filter((event) => event.type === "run").length}</strong><span>API runs</span></div><div><strong>${changeCount}</strong><span>Recorded changes</span></div><div class="${failureCount ? "has-danger" : ""}"><strong>${failureCount}</strong><span>Failures</span></div></section><section class="timeline-controls"><div class="timeline-filters" aria-label="Filter timeline">${filters.map((filter) => `<button class="${timelineFilter === filter.id ? "active" : ""}" data-timeline-filter="${filter.id}">${filter.label}</button>`).join("")}</div><span>${entries.length} shown · local evidence</span></section><section class="project-timeline">${entries.length ? Object.entries(grouped).map(([day, events]) => `<section class="timeline-day"><h2><span>${esc(day)}</span><small>${events.length} event${events.length === 1 ? "" : "s"}</small></h2><div class="timeline-ledger">${events.map(timelineEvent).join("")}</div></section>`).join("") : `<div class="empty-message"><h3>No matching evidence</h3><p>Change the filter, run an API, scan source, or ask Codex to record an implementation decision.</p><button class="secondary-button" data-timeline-filter="all">Show all events</button></div>`}</section>`;
 }
 
 function renderRun(id) {
@@ -545,7 +607,7 @@ function renderRun(id) {
       <div class="timeline-step"><span class="step-label">3</span><div><h3>${result.assertions?.filter((entry) => entry.passed).length ?? 0} of ${result.assertions?.length ?? 0} assertions passed</h3><div class="check-list">${result.assertions?.length ? result.assertions.map((entry) => `<p class="${entry.passed ? "success-text" : "danger-text"}">${entry.passed ? "Passed" : "Failed"}: ${esc(entry.type)}</p>`).join("") : `<p>No assertions configured</p>`}</div></div></div>
       <div class="timeline-step response-step"><span class="step-label">4</span><div><div class="inline-heading"><h3>Response preview</h3><button class="quiet-button" data-copy-response>Copy</button></div><pre>${esc(body)}</pre></div></div>
     </section>
-    <section class="codex-summary"><p class="eyebrow">Codex-ready evidence</p><h2>${esc(result.diagnosis?.category ?? (success ? "Request completed" : "Request failed"))}</h2><p>${esc(result.diagnosis?.summary ?? (success ? "The endpoint returned successfully. Add assertions to turn this run into a reusable contract." : "Review the response evidence and relevant source context before changing code."))}</p>${result.diagnosis?.suggestions?.length ? `<ul>${result.diagnosis.suggestions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : ""}<div class="action-row"><button class="primary-button" data-codex-action="diagnose-run">Ask Codex to continue</button><button class="secondary-button" data-save-contract="${log.requestId}">Save as contract</button></div></section>`;
+    <section class="codex-summary"><p class="eyebrow">Codex-ready evidence</p><h2>${esc(result.diagnosis?.category ?? (success ? "Request completed" : "Request failed"))}</h2><p>${esc(result.diagnosis?.summary ?? (success ? "The endpoint returned successfully. Add assertions to turn this run into a reusable contract." : "Review the response evidence and relevant source context before changing code."))}</p>${result.diagnosis?.suggestions?.length ? `<ul>${result.diagnosis.suggestions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : ""}<div class="action-row"><button class="primary-button" data-codex-action="diagnose-run">Ask Codex to continue</button><button class="secondary-button" data-copy-handoff="${log.id}">Copy handoff</button><button class="secondary-button" data-save-contract="${log.requestId}">Save as contract</button></div></section>`;
 }
 
 function renderProjectSummary() {
@@ -601,7 +663,7 @@ function openVariablesModal() {
   const env = environment();
   openModal("Environment variables", `<label class="field-label">Environment name<input class="field" id="environmentName" value="${esc(env.name)}"></label><div id="environmentVariables">${keyRows(env.variables ?? [], "environment")}</div><p class="supporting-copy">Secret variables are stored in your OS credential vault and represented by opaque references in the local workspace. They stay redacted in agent reports and exports.</p>`, "Save variables", async () => {
     env.name = $("#environmentName").value.trim() || env.name;
-    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    await persistState();
     render();
   });
 }
@@ -619,7 +681,7 @@ function openCreateEnvironmentModal() {
     current.environments.push(created);
     current.activeEnvironmentId = created.id;
     current.updatedAt = new Date().toISOString();
-    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    await persistState();
     render();
     toast(`${name} environment created`);
   });
@@ -638,7 +700,7 @@ function openEditProjectModal() {
     current.summary ??= {};
     current.summary.goal = $("#editProjectGoal").value.trim();
     current.updatedAt = new Date().toISOString();
-    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    await persistState();
     render();
     toast("Project updated");
   });
@@ -715,7 +777,7 @@ async function runRequest(id = selectedRequestId) {
   if (button) { button.disabled = true; button.textContent = "Running locally…"; }
   try {
     clearTimeout(saveTimer);
-    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    await persistState();
     const payload = await api("/api/send", { method: "POST", body: JSON.stringify({ projectId: project().id, request: item }) });
     state = await api("/api/state");
     navigate(`run/${payload.logId}`);
@@ -730,12 +792,16 @@ document.addEventListener("click", async (event) => {
   if (codexAction) { await sendToCodex(codexAction.dataset.codexAction); return; }
   const routeButton = event.target.closest("[data-route]");
   if (routeButton) { navigate(routeButton.dataset.route); return; }
+  const timelineFilterButton = event.target.closest("[data-timeline-filter]");
+  if (timelineFilterButton) { timelineFilter = timelineFilterButton.dataset.timelineFilter; render(); return; }
   const requestButton = event.target.closest("[data-request-id]");
   if (requestButton) { selectedRequestId = requestButton.dataset.requestId; navigate(`request/${selectedRequestId}`); return; }
   const discovered = event.target.closest("[data-discovered-id]");
   if (discovered) { createFromDiscovered(discovered.dataset.discoveredId); return; }
   const log = event.target.closest("[data-log-id]");
   if (log) { navigate(`run/${log.dataset.logId}`); return; }
+  const handoff = event.target.closest("[data-copy-handoff]");
+  if (handoff) { await copyHandoff(state.history.find((entry) => entry.id === handoff.dataset.copyHandoff)); return; }
   const projectButton = event.target.closest("[data-select-project]");
   if (projectButton) { selectProject(projectButton.dataset.selectProject); navigate("project"); render(); return; }
   const environmentButton = event.target.closest("[data-select-environment]");
