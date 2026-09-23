@@ -17,10 +17,10 @@ button { font: inherit; }
 
 .site-header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: clamp(20px, 4vw, 64px); min-height: 76px; padding: 14px 4vw; border-bottom: 1px solid var(--line); background: rgba(242,239,230,.92); backdrop-filter: blur(14px); }
 .brand { display: inline-flex; align-items: center; gap: 11px; width: max-content; font-size: 19px; font-weight: 800; letter-spacing: -.06em; }
-.brand-mark { position: relative; display: inline-block; width: 25px; height: 25px; border: 2px solid currentColor; border-radius: 50%; }
-.brand-mark i { position: absolute; top: 50%; width: 9px; height: 2px; background: currentColor; }
-.brand-mark i:first-child { left: -5px; }
-.brand-mark i:last-child { right: -5px; }
+.logo-letter { color: #f77412; }
+.logo-neutral { color: #11120f; }
+.brand-mark { display: inline-block; width: 25px; height: 25px; flex: none; background: url("/aipi-logo.svg") center / contain no-repeat; }
+.brand-mark i { display: none; }
 .site-header nav { display: flex; flex: 1; justify-content: center; gap: clamp(16px, 2.5vw, 34px); font-family: var(--mono); font-size: 11px; text-transform: uppercase; }
 .site-header nav a, .header-cta { transition: opacity .2s ease; }
 .site-header nav a:hover, .header-cta:hover { opacity: .55; }
