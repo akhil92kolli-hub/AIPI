@@ -156,6 +156,43 @@ function runRow(entry) {
   return `<button class="run-row" data-log-id="${entry.id}"><div>${methodBadge(entry.method)}<div><strong>${esc(entry.requestName)}</strong><span>${esc(entry.url)}</span></div></div><div><span class="status-tag ${runStatus.tone}">${esc(runStatus.label)}</span><span>${formatDate(entry.createdAt)}</span></div></button>`;
 }
 
+function activityRows(current) {
+  const source = current.sourceContext ?? {};
+  const runs = state.history.filter((entry) => entry.projectId === current.id).map((entry) => ({
+    id: entry.id,
+    kind: "run",
+    title: entry.result?.ok && entry.result?.passed !== false ? `${entry.requestName} succeeded` : `${entry.requestName} failed`,
+    detail: entry.result?.status ? `HTTP ${entry.result.status} · ${entry.method} ${entry.url}` : (entry.result?.error || `${entry.method} ${entry.url}`),
+    createdAt: entry.createdAt,
+    tone: entry.result?.ok && entry.result?.passed !== false ? "success" : "danger",
+    route: `run/${entry.id}`
+  }));
+  const discovered = (source.endpoints ?? []).map((entry) => ({
+    id: `api-${entry.id}`,
+    kind: "api",
+    title: "New API discovered",
+    detail: `${entry.method} ${entry.path} · ${entry.source ?? "source scan"}`,
+    createdAt: source.lastScannedAt,
+    tone: "info"
+  }));
+  const changes = (state.activity ?? []).filter((entry) => entry.projectId === current.id).map((entry) => ({
+    id: entry.id,
+    kind: entry.kind ?? "agent",
+    title: entry.title ?? "Agent activity",
+    detail: entry.detail ?? entry.summary ?? "A concise project activity was recorded.",
+    createdAt: entry.createdAt,
+    tone: entry.tone ?? "info",
+    route: entry.route
+  }));
+  return [...runs, ...discovered, ...changes].filter((entry) => entry.createdAt).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function activityRow(entry) {
+  const label = entry.kind === "run" ? "Run" : entry.kind === "api" ? "API" : entry.kind === "mcp" ? "MCP" : entry.kind === "project" ? "Project" : "Agent";
+  const target = entry.route ? `data-route="${entry.route}"` : "";
+  return `<button class="activity-row" ${target}><span class="activity-kind ${entry.tone}">${label}</span><span class="activity-copy"><strong>${esc(entry.title)}</strong><small>${esc(entry.detail)}</small></span><time datetime="${esc(entry.createdAt)}">${esc(formatDate(entry.createdAt))}</time></button>`;
+}
+
 function projectCorrections(current = project()) {
   const source = current.sourceContext ?? {};
   const backend = [];
@@ -259,7 +296,7 @@ async function sendToCodex(action = "contextual") {
 
 function shell(content, currentRoute) {
   const activeRun = currentRoute.name === "run" ? state.history.find((entry) => entry.id === currentRoute.id) : null;
-  const activeRoot = ["request"].includes(currentRoute.name) || (activeRun && project().requests.some((entry) => entry.id === activeRun.requestId)) ? "apis" : ["run"].includes(currentRoute.name) ? "runs" : currentRoute.name === "summary" ? "project" : currentRoute.name;
+  const activeRoot = ["request"].includes(currentRoute.name) || (activeRun && project().requests.some((entry) => entry.id === activeRun.requestId)) ? "apis" : ["run"].includes(currentRoute.name) ? "logs" : currentRoute.name === "summary" ? "project" : currentRoute.name;
   return `
     <div class="app-shell">
       <header class="mobile-header">
@@ -269,7 +306,7 @@ function shell(content, currentRoute) {
       <main class="route-view" data-route-name="${esc(currentRoute.name)}">${content}</main>
       <button class="chat-launcher" data-codex-action="contextual" aria-label="Send this screen's context to Codex chat"><span class="chat-spark">✦</span><span class="chat-label">Ask Codex</span></button>
       <nav class="bottom-nav" aria-label="Primary navigation">
-        ${[["project", "Project"], ["apis", "APIs"], ["map", "Map"], ["runs", "Runs"]].map(([target, label]) => `<button class="nav-item ${activeRoot === target ? "active" : ""}" data-route="${target}" ${activeRoot === target ? 'aria-current="page"' : ""}><span>${label}</span></button>`).join("")}
+        ${[["project", "Project"], ["apis", "APIs"], ["map", "Map"], ["logs", "Logs"]].map(([target, label]) => `<button class="nav-item ${activeRoot === target ? "active" : ""}" data-route="${target}" ${activeRoot === target ? 'aria-current="page"' : ""}><span>${label}</span></button>`).join("")}
       </nav>
     </div>`;
 }
@@ -286,7 +323,7 @@ function render() {
   else if (currentRoute.name === "apis") content = renderApis();
   else if (currentRoute.name === "request") content = renderRequest(currentRoute.id);
   else if (currentRoute.name === "map") content = renderIntegrationMap();
-  else if (currentRoute.name === "runs") content = renderRuns();
+  else if (currentRoute.name === "runs" || currentRoute.name === "logs") content = renderLogs();
   else if (currentRoute.name === "run") content = renderRun(currentRoute.id);
   else if (currentRoute.name === "summary") content = renderProject();
   else content = renderProject();
@@ -386,7 +423,8 @@ function renderApis() {
     <section class="api-list">${rows.length ? rows.map((entry) => {
       const runStatus = lastRunStatus(entry.latestRun);
       return `<button class="api-row" ${entry.kind === "request" ? `data-request-id="${entry.id}"` : `data-discovered-id="${entry.id}"`}><div class="api-row-main">${methodBadge(entry.method)}<div><strong>${esc(entry.name)}</strong><span>${esc(entry.path)}</span></div></div><div class="api-row-meta"><div class="api-row-tags"><span class="status-tag ${runStatus.tone}">${esc(runStatus.label)}</span><span class="status-tag ${statusClass(entry.status)}">${esc(statusLabel(entry.status))}</span></div>${entry.latestRun ? `<time class="api-run-time" datetime="${esc(entry.latestRun.createdAt)}">Last tested ${esc(formatDate(entry.latestRun.createdAt))}</time>` : `<span class="api-run-time">Never tested</span>`}</div></button>`;
-    }).join("") : `<div class="empty-message"><h3>No APIs in this view</h3><p>Connect source code or create a request manually.</p><button class="secondary-button" id="emptyNewRequest">Create request</button></div>`}</section>`;
+    }).join("") : `<div class="empty-message"><h3>No APIs in this view</h3><p>Connect source code or create a request manually.</p><button class="secondary-button" id="emptyNewRequest">Create request</button></div>`}</section>
+    <section class="section-block api-activity-preview"><div class="section-heading"><div><p class="eyebrow">Recent logs</p><h2>What changed around these APIs</h2></div><button class="quiet-button" data-route="logs">View all logs</button></div>${activityRows(current).slice(0, 4).map(activityRow).join("") || `<p class="supporting-copy">Runs, agent summaries, MCP context, and new APIs will appear here as work happens.</p>`}</section>`;
 }
 
 function renderIntegrationMap() {
@@ -460,20 +498,21 @@ function renderAssertions(assertions) {
   return `<div class="assertion-list">${assertions.map((entry, index) => `<div class="assertion-row"><select data-test-type="${index}"><option value="status" ${entry.type === "status" ? "selected" : ""}>Status</option><option value="json_path" ${entry.type === "json_path" ? "selected" : ""}>JSON path</option><option value="header" ${entry.type === "header" ? "selected" : ""}>Header</option><option value="response_time" ${entry.type === "response_time" ? "selected" : ""}>Response time</option></select><input data-test-target="${index}" value="${esc(entry.path ?? entry.name ?? "")}" placeholder="Target"><input data-test-expected="${index}" value="${esc(entry.equals ?? entry.less_than_ms ?? "")}" placeholder="Expected"><button class="remove-button" data-test-remove="${index}">Remove</button></div>`).join("")}</div><button class="quiet-button add-row-button" id="addAssertionButton">Add assertion</button>`;
 }
 
-function renderRuns() {
-  const logs = state.history.filter((entry) => entry.projectId === project().id);
-  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Local evidence</p><h1>Runs</h1><p>Every attempt stays on this machine with its response, assertions, and diagnosis.</p></div><button class="primary-button" data-codex-action="review-runs">Review with Codex</button></section><section class="run-list">${logs.length ? logs.map(runRow).join("") : `<div class="empty-message"><h3>No local runs yet</h3><p>Ask Codex to choose and run a safe first test, or open APIs to compose one manually.</p><button class="secondary-button" data-codex-action="test-apis">Plan first test</button></div>`}</section>`;
+function renderLogs() {
+  const current = project();
+  const entries = activityRows(current);
+  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Local activity</p><h1>Logs</h1><p>Concise evidence from failed runs, agent actions, MCP context, project changes, and new APIs.</p></div><button class="primary-button" data-codex-action="review-runs">Review with Codex</button></section><section class="activity-list">${entries.length ? entries.map(activityRow).join("") : `<div class="empty-message"><h3>No logs yet</h3><p>Run an API, scan source, or continue with Codex to start building a useful activity trail.</p><button class="secondary-button" data-route="apis">Open APIs</button></div>`}</section>`;
 }
 
 function renderRun(id) {
   const log = state.history.find((entry) => entry.id === id);
-  if (!log) return `<div class="empty-message"><h2>Run not found</h2><button class="secondary-button" data-route="runs">Back to runs</button></div>`;
+  if (!log) return `<div class="empty-message"><h2>Log not found</h2><button class="secondary-button" data-route="logs">Back to logs</button></div>`;
   const parentRequest = project().requests.find((entry) => entry.id === log.requestId);
   const result = log.result ?? {};
   const success = Boolean(result.ok && result.passed !== false);
   const body = result.json ? JSON.stringify(result.json, null, 2) : result.body ?? result.error ?? "No response body";
   return `
-    <section class="request-route-head"><button class="back-button" data-route="${parentRequest ? `request/${parentRequest.id}` : "runs"}">${parentRequest ? "Back to API" : "Back to runs"}</button><div><p class="eyebrow">Run evidence</p><h1>${esc(log.requestName)}</h1></div></section>
+    <section class="request-route-head"><button class="back-button" data-route="${parentRequest ? `request/${parentRequest.id}` : "logs"}">${parentRequest ? "Back to API" : "Back to logs"}</button><div><p class="eyebrow">Log detail</p><h1>${esc(log.requestName)}</h1></div></section>
     <section class="run-hero ${success ? "success-surface" : "failure-surface"}"><div><p class="eyebrow">${success ? "Run completed" : "Run needs attention"}</p><h2>${methodBadge(log.method)} ${esc(result.request?.url ?? log.url)}</h2><p>${result.status ? `HTTP ${result.status}` : "Network error"} · ${result.elapsed_ms ?? 0} ms · ${formatDate(log.createdAt)}</p></div><button class="secondary-button" data-rerun-log="${log.id}">Run again</button></section>
     <section class="timeline" aria-label="Run timeline">
       <div class="timeline-step"><span class="step-label">1</span><div><h3>Connected</h3><p>${result.error ? esc(result.error) : `Reached ${esc(hostFor(result.request?.url ?? log.url))}`}</p></div><span>${Math.max(1, Math.round((result.elapsed_ms ?? 0) * .2))} ms</span></div>
