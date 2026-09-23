@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Install AIPI — Local API intelligence</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="site-brand" href="/"><img src="/aipi-logo.svg" alt=""><span><b>A</b>i-<b>PI</b></span></a>
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a href="/product.html">Product</a><a href="/workflow.html">Workflow</a><a href="/evidence.html">Evidence</a><a href="/security.html">Security</a><a class="active" href="/install.html">Install</a>
+    </nav>
+    <a class="header-cta" href="/login.html">Open dashboard</a>
+  </header>
+  <main class="page-shell">
+    <section class="page-hero">
+      <p class="eyebrow">Cloud UI · Local engine</p>
+      <h1>Install AIPI where your code lives.</h1>
+      <p>Cloudflare hosts the website and dashboard shell. The AIPI Companion runs locally with your MCP server, source code, requests, and logs.</p>
+    </section>
+    <section class="content-grid">
+      <article class="content-card">
+        <p class="eyebrow">01 · Install</p>
+        <h2>Install the local companion</h2>
+        <pre><code>npm install -g @aipi/companion
+aipi status
+aipi dashboard</code></pre>
+        <p>The companion binds to loopback by default. It does not open your project to the public internet.</p>
+      </article>
+      <article class="content-card">
+        <p class="eyebrow">02 · Connect your IDE</p>
+        <h2>Register the local MCP server</h2>
+        <pre><code>{
+  "mcpServers": {
+    "aipi": {
+      "command": "aipi",
+      "args": ["mcp", "start"]
+    }
+  }
+}</code></pre>
+        <p>Codex or another supported IDE uses MCP over stdio. The agent remains in control of repository changes.</p>
+      </article>
+      <article class="content-card">
+        <p class="eyebrow">03 · Pair</p>
+        <h2>Pair the cloud dashboard</h2>
+        <ol class="step-list"><li>Sign in at <strong>aipi.website</strong>.</li><li>Choose <strong>Connect local companion</strong>.</li><li>Approve the short-lived pairing code shown by <code>aipi connect</code>.</li><li>Choose a project folder locally.</li></ol>
+        <p>The cloud UI can request approved local operations, but it cannot execute arbitrary shell commands.</p>
+      </article>
+      <article class="content-card">
+        <p class="eyebrow">Data boundary</p>
+        <h2>Local by default</h2>
+        <div class="check-list"><p>✓ Source code and credentials stay local</p><p>✓ API execution and response bodies stay local</p><p>✓ Logs and evidence stay in the local workspace</p><p>○ Optional contract metadata can be synchronized for teams</p></div>
+      </article>
+    </section>
+    <section class="callout">
+      <p class="eyebrow">Current release</p>
+      <h2>Start locally today; add cloud pairing when enabled for your workspace.</h2>
+      <p>The local dashboard and MCP server work without an account. Cloud pairing is an additive connection layer, not a requirement for local API intelligence.</p>
+      <a class="primary-button" href="/workflow.html">See the workflow ↗</a>
+    </section>
+  </main>
+</body>
+</html>

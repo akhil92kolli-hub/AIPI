@@ -2,6 +2,22 @@
 
 AIPI (AI-Programming Interface) is the product showcase: from failing API to verified code fix.
 
+## Operating model
+
+The public website and dashboard shell are hosted on Cloudflare. The API intelligence engine remains local:
+
+```text
+Cloudflare website/dashboard
+          │ optional paired session
+          ▼
+Local AIPI Companion ── local MCP ── Codex / IDE
+          ├── source scanning
+          ├── API execution
+          └── logs and evidence
+```
+
+Install the companion and connect an IDE from the [installation guide](/install.html). Local-only use does not require an account or cloud connection.
+
 ## Build
 
 ```bash
