@@ -25,6 +25,7 @@ npm run build
 ```
 
 The production site is generated in `dist/client`, with the Worker entry point at `dist/server/index.js`.
+The local dashboard shell is also bundled at `dist/client/dashboard/` and is available at `/dashboard/`. It connects to a running local companion using the `port` and `token` query parameters.
 
 ## Cloudflare Workers
 
