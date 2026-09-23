@@ -1,0 +1,14 @@
+node_modules/
+dist/
+showcase/
+src/
+tests/
+docs/
+.github/
+.vscode/
+.env*
+*.log
+scripts/aipi-mcp-bundle.mjs
+scripts/self-test.mjs
+scripts/cloud-smoke.ts
+scripts/validate-project.mjs

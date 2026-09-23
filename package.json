@@ -1,18 +1,34 @@
 {
   "name": "@aipi/companion",
-  "version": "0.3.0",
-  "private": true,
-  "description": "AIPI (AI-Programming Interface), a local API testing workspace for Codex and ChatGPT.",
+  "version": "0.4.0",
+  "description": "AIPI local companion and MCP server for AI-powered API intelligence.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/akhil92kolli-hub/AIPI.git"
+  },
+  "homepage": "https://aipi.website",
+  "bugs": {
+    "url": "https://github.com/akhil92kolli-hub/AIPI/issues"
+  },
   "type": "module",
   "bin": {
-    "api-forge": "./packages/cli/bin/api-forge.mjs",
-    "aipi": "./packages/cli/bin/api-forge.mjs"
+    "api-forge": "./scripts/aipi-cli-bundle.mjs",
+    "aipi": "./scripts/aipi-cli-bundle.mjs"
+  },
+  "files": [
+    "scripts/aipi-cli-bundle.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "npm run typecheck && npm run build:local && npm run build:cli",
+    "pack:release": "npm run build:cli && npm pack --dry-run",
     "build:local": "esbuild src/local-mcp.ts --bundle --platform=node --format=esm --target=node22 --banner:js=\"import { createRequire as _aipiCreateRequire } from 'node:module'; import { fileURLToPath as _aipiFileURLToPath } from 'node:url'; import { dirname as _aipiDirname } from 'node:path'; const require = _aipiCreateRequire(import.meta.url); const __filename = _aipiFileURLToPath(import.meta.url); const __dirname = _aipiDirname(__filename);\" --outfile=scripts/aipi-mcp-bundle.mjs",
     "build:cli": "esbuild packages/cli/bin/api-forge.mjs --bundle --platform=node --format=esm --target=node22 --banner:js=\"import { createRequire as _aipiCreateRequire } from 'node:module'; import { fileURLToPath as _aipiFileURLToPath } from 'node:url'; import { dirname as _aipiDirname } from 'node:path'; const require = _aipiCreateRequire(import.meta.url); const __filename = _aipiFileURLToPath(import.meta.url); const __dirname = _aipiDirname(__filename);\" --outfile=scripts/aipi-cli-bundle.mjs",
     "typecheck": "tsc --noEmit",

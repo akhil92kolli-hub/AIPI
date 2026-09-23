@@ -273,7 +273,7 @@ function codexContext(action = "contextual") {
       assertions: (log.result?.assertions ?? []).map((entry) => ({ type: entry.type, passed: entry.passed }))
     } : null
   };
-  return `Continue this AIPI task in Codex chat.\n\n${instruction}\n\nUse the AIPI MCP tools with the IDs below to read authoritative local state and evidence. Do not ask me to restate information already saved in AIPI. Do not expose credentials or secret environment values. Do not retry POST, PUT, PATCH, or DELETE without my authorization.\n\nContext:\n${JSON.stringify(context, null, 2)}`;
+  return `Continue this AIPI task in Codex chat.\n\n${instruction}\n\nUse the AIPI MCP tools with the IDs below to read authoritative local state and evidence. For a correction, prefer analyze_and_repair_contract: retrieve a small summary, identify one endpoint, use bounded evidence, let the editor apply the smallest change, then verify only the affected contract. Do not ask me to restate information already saved in AIPI. Do not expose credentials or secret environment values. Do not retry POST, PUT, PATCH, or DELETE without my authorization.\n\nContext:\n${JSON.stringify(context, null, 2)}`;
 }
 
 async function copyCodexContext(prompt) {
@@ -582,7 +582,8 @@ function timelineEvent(event) {
 
 function renderLogs() {
   const current = project();
-  const allEvents = (state.timeline ?? []).filter((entry) => entry.projectId === current.id);
+  const legacyRuns = (state.history ?? []).filter((entry) => entry.projectId === current.id).map((entry) => ({ id: `evt_${entry.id}`, projectId: entry.projectId, createdAt: entry.createdAt, type: "run", severity: entry.result?.ok && entry.result?.passed !== false && !entry.result?.error ? "success" : "danger", actor: "aipi", title: `${entry.requestName || "API request"} ${entry.result?.ok && entry.result?.passed !== false && !entry.result?.error ? "succeeded" : "failed"}`, summary: entry.result?.status ? `HTTP ${entry.result.status} · ${entry.method} ${entry.url}` : (entry.result?.error || `${entry.method} ${entry.url}`), tags: [entry.method, entry.result?.status ? `HTTP ${entry.result.status}` : "network"].filter(Boolean), source: { kind: "run", ref: entry.id, requestId: entry.requestId }, evidence: { status: entry.result?.status ?? null, elapsedMs: entry.result?.elapsed_ms ?? null, assertionsPassed: (entry.result?.assertions ?? []).filter((assertion) => assertion.passed).length, assertionsTotal: (entry.result?.assertions ?? []).length, diagnosis: entry.result?.diagnosis?.category ?? null } }));
+  const allEvents = ((state.timeline?.length ? state.timeline : legacyRuns) ?? []).filter((entry) => entry.projectId === current.id);
   const filters = [{ id: "all", label: "All" }, { id: "run", label: "Runs" }, { id: "change", label: "Changes" }, { id: "scan", label: "Scans" }, { id: "agent", label: "Agent" }, { id: "attention", label: "Needs attention" }];
   const entries = allEvents.filter((event) => timelineFilter === "all" || event.type === timelineFilter || (timelineFilter === "change" && ["change", "project", "decision", "contract"].includes(event.type)) || (timelineFilter === "agent" && ["agent", "decision"].includes(event.type)) || (timelineFilter === "attention" && ["warning", "danger"].includes(event.severity)));
   const grouped = entries.reduce((groups, event) => { const day = timelineDay(event.createdAt); (groups[day] ??= []).push(event); return groups; }, {});
@@ -890,5 +891,5 @@ async function init() {
 
 init().catch((error) => {
   const hasLocalTarget = new URLSearchParams(location.search).has("port");
-  $("#app").innerHTML = `<div class="fatal-error"><h1>${hasLocalTarget ? "Local companion unavailable" : "Open AIPI from your project"}</h1><p>${hasLocalTarget ? "The dashboard could not reach the local companion. Start it again, then refresh this page." : "Run <code>npx aipi open</code> from your project root. AIPI will start the local companion, add a short-lived token, and open this dashboard securely."}</p><div class="action-row"><a class="primary-button" href="http://127.0.0.1:49152/?port=49152">Try local companion</a><a class="secondary-button" href="/install.html">Read installation guide</a></div><small>${esc(error.message)}</small></div>`;
+  $("#app").innerHTML = `<div class="fatal-error"><h1>${hasLocalTarget ? "Local companion unavailable" : "Open AIPI from your project"}</h1><p>${hasLocalTarget ? "The dashboard could not reach the local companion. Start it again, then refresh this page." : "Run <code>npx @aipi/companion open</code> from your project root. AIPI will start the local companion, add a short-lived token, and open this dashboard securely."}</p><div class="action-row"><a class="primary-button" href="http://127.0.0.1:49152/?port=49152">Try local companion</a><a class="secondary-button" href="/install.html">Read installation guide</a></div><small>${esc(error.message)}</small></div>`;
 });
