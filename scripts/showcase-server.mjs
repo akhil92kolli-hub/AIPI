@@ -3,7 +3,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../showcase");
+const showcaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../showcase");
+const builtRoot = path.join(showcaseRoot, "dist", "client");
+const ROOT = await fs.access(builtRoot).then(() => builtRoot).catch(() => showcaseRoot);
 const PORT = Number(process.env.AIPI_PORT || 4173);
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml" };
 
@@ -11,7 +13,8 @@ const server = http.createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
     const target = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
-    const file = path.resolve(ROOT, target);
+    let file = path.resolve(ROOT, target);
+    if (path.extname(file) === "") file = path.join(file, "index.html");
     if (!file.startsWith(ROOT)) throw new Error("Invalid path");
     const body = await fs.readFile(file);
     response.writeHead(200, { "content-type": mime[path.extname(file)] || "application/octet-stream", "cache-control": "no-store" });

@@ -888,4 +888,7 @@ async function init() {
   render();
 }
 
-init().catch((error) => { $("#app").innerHTML = `<div class="fatal-error"><h1>AIPI could not start</h1><pre>${esc(error.stack)}</pre></div>`; });
+init().catch((error) => {
+  const hasLocalTarget = new URLSearchParams(location.search).has("port");
+  $("#app").innerHTML = `<div class="fatal-error"><h1>${hasLocalTarget ? "Local companion unavailable" : "Open AIPI from your project"}</h1><p>${hasLocalTarget ? "The dashboard could not reach the local companion. Start it again, then refresh this page." : "Run <code>npx aipi open</code> from your project root. AIPI will start the local companion, add a short-lived token, and open this dashboard securely."}</p><div class="action-row"><a class="primary-button" href="http://127.0.0.1:49152/?port=49152">Try local companion</a><a class="secondary-button" href="/install.html">Read installation guide</a></div><small>${esc(error.message)}</small></div>`;
+});
