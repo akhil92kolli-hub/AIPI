@@ -46,6 +46,33 @@ Ask Codex to **open my AIPI dashboard**, or run `npm run dashboard` while develo
 
 The dashboard binds only to `127.0.0.1` and defaults to `http://127.0.0.1:43127`.
 
+## Deployment and installation model
+
+AIPI is local-first by design. Cloudflare hosts the public website, documentation, and dashboard shell. The local AIPI Companion runs the MCP server, scans source code, executes API requests, and stores logs and evidence on the developer's machine. An optional outbound pairing bridge can connect the cloud dashboard to an approved local companion without opening an inbound port.
+
+Install the companion:
+
+```bash
+npm install -g @aipi/companion
+aipi status
+aipi dashboard
+```
+
+Register the local MCP server in the IDE:
+
+```json
+{
+  "mcpServers": {
+    "aipi": {
+      "command": "aipi",
+      "args": ["mcp", "start"]
+    }
+  }
+}
+```
+
+See the hosted [installation guide](https://aipi.website/install.html) for the cloud dashboard, pairing flow, data boundary, and troubleshooting model.
+
 ## Codex tools
 
 - `open_dashboard`
@@ -73,11 +100,14 @@ The dashboard binds only to `127.0.0.1` and defaults to `http://127.0.0.1:43127`
 - `check_blast_radius`
 - `compare_runs`
 - `create_fix_plan`
+- `run_correction_workflow`
 - `generate_regression_test`
 - `verify_changes`
 - `export_project`
 
 The tools remain fully usable without the UI. This lets Codex trace actual traffic, compare observed response contracts with database schema, generate editor-ready fixtures, and summarize cross-layer corrections directly in conversation. Fixture generation returns content without writing files so the developer's AI editor stays in control of repository changes.
+
+`run_correction_workflow` is the closed-loop entry point. Its first call returns the failing evidence, affected files, Git freshness, fix plan, and a non-writing regression fixture. After the editor applies the correction, call it again with `verify_after_changes=true` to rerun the saved request, persist new evidence, and compare the result with the original run. State-changing methods remain blocked until `allow_state_change=true` is explicitly authorized.
 
 ## Local Companion
 
@@ -183,6 +213,8 @@ npm run dashboard
 
 The self-test starts disposable local and remote APIs, captures traffic, traces the demo Next.js route, detects its Zod contract mismatch, diagnoses a runtime failure, generates a Vitest fixture, verifies cross-repository blast radius, exercises both MCP handshakes, loads the dashboard, and imports an OpenAPI document.
 
+Source scans now capture the Git commit, branch, working-tree state, and changed files for every configured root. Project summaries and verification tools report whether the current repository still matches the evidence baseline.
+
 `npm run demo:aipi` prints a deterministic product story: the traced handler/schema/model, the local `number → uuid` mismatch, and both registered consumer repositories affected by the proposed breaking change.
 
 `npm run benchmark:startup` enforces the Local Companion's cold MCP handshake target of under two seconds.
@@ -206,7 +238,9 @@ Place the project in a local plugin marketplace, install `api-forge`, then start
 
 ## Storage and security
 
-Workspace data is stored in the plugin data directory with user-only file permissions. It can contain credentials, certificates, scripts, request bodies, and logs. Remove sensitive values before sharing a project or plugin data. Scripts should be treated as trusted local code.
+Workspace data is stored in the plugin data directory with user-only file permissions. Saved environment secrets, request authentication values, and mTLS client private keys use the native credential facility available on the host: macOS Keychain, Linux Secret Service through `secret-tool`, or Windows Credential Manager through the built-in Windows PowerShell API bridge. All providers use the `com.aipi.companion` service identity. `workspace.json` contains only opaque `aipi-secret://...` references, and AIPI has no plaintext credential fallback. Existing plaintext values are migrated the next time the workspace is saved. Use the `get_secret_storage_status` MCP tool to verify the active provider.
+
+Request bodies, response logs, public certificates, and scripts remain local workspace data and may still be sensitive. Remove sensitive payloads before sharing plugin data. Scripts should be treated as trusted local code. Linux installations need the `secret-tool` executable and an unlocked desktop keyring. On an unsupported or unavailable provider, AIPI refuses to persist new credential values.
 
 AIPI requires Node.js 22+ for the local companion and MSW's current socket-level HTTP interceptor.
 
