@@ -1,5 +1,5 @@
 {
-  "name": "@aipi/companion",
+  "name": "@akhil92kolli-hub/aipi-companion",
   "version": "0.4.0",
   "description": "AIPI local companion and MCP server for AI-powered API intelligence.",
   "repository": {
@@ -21,7 +21,8 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "engines": {
     "node": ">=22"

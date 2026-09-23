@@ -53,9 +53,8 @@ AIPI is local-first by design. Cloudflare hosts the public website, documentatio
 Install the companion:
 
 ```bash
-npm install -g @aipi/companion
-aipi status
-aipi dashboard
+npm install -g @akhil92kolli-hub/aipi-companion
+aipi open
 ```
 
 Register the local MCP server in the IDE:
@@ -65,7 +64,7 @@ Register the local MCP server in the IDE:
   "mcpServers": {
     "aipi": {
       "command": "aipi",
-      "args": ["mcp", "start"]
+      "args": ["mcp"]
     }
   }
 }
@@ -85,6 +84,9 @@ See the hosted [installation guide](https://aipi.website/install.html) for the c
 - `scan_project`
 - `list_endpoints`
 - `get_project_summary`
+- `get_project_timeline`
+- `record_project_event`
+- `analyze_and_repair_contract`
 - `get_history`
 - `diagnose_failure`
 - `retry_request`
@@ -105,7 +107,7 @@ See the hosted [installation guide](https://aipi.website/install.html) for the c
 - `verify_changes`
 - `export_project`
 
-The tools remain fully usable without the UI. This lets Codex trace actual traffic, compare observed response contracts with database schema, generate editor-ready fixtures, and summarize cross-layer corrections directly in conversation. Fixture generation returns content without writing files so the developer's AI editor stays in control of repository changes.
+The tools remain fully usable without the UI. This lets Codex trace actual traffic, compare observed response contracts with database schema, generate editor-ready fixtures, and summarize cross-layer corrections directly in conversation. `get_project_timeline` provides bounded, high-signal context instead of sending entire logs or repositories into the model, while `record_project_event` preserves agent decisions and implemented changes as redacted local evidence. Fixture generation returns content without writing files so the developer's AI editor stays in control of repository changes.
 
 `run_correction_workflow` is the closed-loop entry point. Its first call returns the failing evidence, affected files, Git freshness, fix plan, and a non-writing regression fixture. After the editor applies the correction, call it again with `verify_after_changes=true` to rerun the saved request, persist new evidence, and compare the result with the original run. State-changing methods remain blocked until `allow_state_change=true` is explicitly authorized.
 
