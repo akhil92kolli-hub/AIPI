@@ -368,7 +368,7 @@ function renderProject() {
       <button data-route="apis"><strong>${source.endpoints?.length ?? 0}</strong><span>Backend APIs</span></button>
       <button data-route="apis"><strong>${source.frontendCalls?.length ?? 0}</strong><span>Frontend calls</span></button>
       <button data-route="map"><strong>${healthy}</strong><span>Matched</span></button>
-      <button data-route="runs"><strong>${runs.length}</strong><span>Local runs</span></button>
+      <button data-route="logs"><strong>${runs.length}</strong><span>Activity logs</span></button>
     </section>
 
     <section class="section-block">
