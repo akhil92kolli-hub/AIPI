@@ -1,0 +1,9 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String @id @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+}

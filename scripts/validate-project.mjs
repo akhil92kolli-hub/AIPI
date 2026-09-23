@@ -11,6 +11,10 @@ const required = [
   ".mcp.json",
   "skills/api-testing/SKILL.md",
   "scripts/api-forge-server.mjs",
+  "scripts/aipi-mcp-bundle.mjs",
+  "scripts/aipi-cli-bundle.mjs",
+  "src/local-mcp.ts",
+  "cloud/worker.ts",
   "packages/core/index.mjs",
   "packages/collection-schema/index.mjs",
   "packages/integration-map/index.mjs",
@@ -33,6 +37,6 @@ assert.match(manifest.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
 
 const mcp = JSON.parse(await fs.readFile(path.join(root, ".mcp.json"), "utf8"));
 assert.ok(mcp.mcpServers?.aipi);
-assert.ok(mcp.mcpServers.aipi.args.includes("${PLUGIN_ROOT}/scripts/api-forge-server.mjs"));
+assert.ok(mcp.mcpServers.aipi.args.includes("${PLUGIN_ROOT}/scripts/aipi-mcp-bundle.mjs"));
 
 process.stdout.write("AIPI project validation passed\n");

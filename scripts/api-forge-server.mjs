@@ -7,13 +7,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDashboard, diagnosisFor, executeSaved, scanProjectSource } from "./dashboard-server.mjs";
-import { addHistory, defaultRequest, loadState, mutateState, newId, variablesFor } from "./workspace-store.mjs";
-import { buildFixPlan, compareRunEvidence, normalizeRoute, redactRecord } from "../packages/core/index.mjs";
+import { addHistory, defaultProject, defaultRequest, loadState, mutateState, newId, variablesFor } from "./workspace-store.mjs";
+import { buildFixPlan, compareRunEvidence, diffObservedContract, generateFixtureContent, inferJsonShape, normalizeRoute, redactRecord, summarizeProjectEvidence } from "../packages/core/index.mjs";
 import { endpointContext, integrationIssues } from "../packages/integration-map/index.mjs";
 import { writeRepositoryProject } from "../packages/collection-schema/index.mjs";
 import { writeRegressionTest } from "../packages/test-generators/index.mjs";
+import { diffFrontendBackend, generateObservedVitest, traceNextRoute, validatePayloadAgainstTrace } from "../packages/contract-engine/index.mjs";
+import { diagnoseTraffic, readTraffic } from "../packages/local-observer/index.mjs";
+import { checkBlastRadius, registryFromEnvironment } from "../packages/remote-registry/index.mjs";
 
-const SERVER = { name: "api-forge", version: "0.2.0" };
+const SERVER = { name: "api-forge", version: "0.3.0" };
 const PROTOCOL_VERSION = "2025-11-25";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const UI_DIR = path.join(ROOT, "ui");
@@ -184,6 +187,41 @@ export const tools = [
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
+    name: "trace_route",
+    title: "Trace an API route",
+    description: "Map a URL to its Next.js App Router handler, Zod validation schema, and Prisma or Drizzle model. With project_id and request_id, also execute the saved request through AIPI's local test hook and capture runtime evidence.",
+    inputSchema: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: METHODS, default: "GET" }, root: { type: "string" }, project_id: { type: "string" }, request_id: { type: "string" }, allow_state_change: { type: "boolean", default: false }, max_attempts: { type: "integer", minimum: 1, maximum: 3, default: 1 } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+  },
+  {
+    name: "diff_contract",
+    title: "Diff observed API contract",
+    description: "Deterministically compare a frontend fetch payload with a Next.js backend validation schema, or compare a saved run with the nearest database table. Returns exact field mismatches without changing files.",
+    inputSchema: { type: "object", properties: { project_id: { type: "string" }, frontend_file: { type: "string" }, backend_route: { type: "string" }, method: { type: "string", enum: METHODS, default: "POST" }, root: { type: "string" }, log_id: { type: "string" }, schema_name: { type: "string", description: "Optional discovered table name for saved-run comparison." } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "generate_fixture",
+    title: "Generate fixture from observed traffic",
+    description: "Generate a deterministic Vitest test from successfully observed local traffic, or create a redacted data fixture from a saved run. Returns content for the AI editor and does not write files.",
+    inputSchema: { type: "object", properties: { endpoint: { type: "string" }, method: { type: "string", enum: METHODS, default: "GET" }, root: { type: "string" }, test_framework: { type: "string", enum: ["vitest"], default: "vitest" }, log_id: { type: "string" }, format: { type: "string", enum: ["json", "typescript", "msw", "pytest"], default: "json" }, name: { type: "string" } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "run_local_diagnostic",
+    title: "Replay and diagnose a local request",
+    description: "Replay an explicit local HTTP request or analyze the latest observed request, classify validation/database/backend failures, and return the exact handler and failure evidence. State-changing methods require allow_state_change=true.",
+    inputSchema: { type: "object", required: ["request_payload"], properties: { root: { type: "string" }, request_payload: { type: "object", required: ["url"], properties: { url: { type: "string" }, method: { type: "string", enum: METHODS, default: "GET" }, headers: { type: "object" }, body: {}, replay: { type: "boolean", default: true } }, additionalProperties: false }, allow_state_change: { type: "boolean", default: false } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+  },
+  {
+    name: "check_blast_radius",
+    title: "Check cross-repository blast radius",
+    description: "Compare a proposed backend contract with the team schema registry and report consumer repositories, files, and lines that would break.",
+    inputSchema: { type: "object", required: ["organizationId", "repository", "method", "route", "schema"], properties: { organizationId: { type: "string" }, repository: { type: "string" }, method: { type: "string" }, route: { type: "string" }, revision: { type: "string" }, schema: { type: "object" } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
     name: "compare_runs",
     title: "Compare API runs",
     description: "Compare status, success, assertions, and latency between two saved API Forge runs.",
@@ -237,6 +275,20 @@ export const tools = [
     description: "List saved API Forge projects, environments, and request counts.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  },
+  {
+    name: "create_project",
+    title: "Create API project",
+    description: "Create a local API Forge project with an environment and optional source roots, then make it active.",
+    inputSchema: { type: "object", required: ["name"], properties: { name: { type: "string" }, goal: { type: "string" }, environment_name: { type: "string" }, base_url: { type: "string" }, roots: { type: "array", maxItems: 8, items: { type: "object", required: ["path"], properties: { kind: { type: "string", enum: ["workspace", "frontend", "backend", "database", "schemas", "tests", "docs"] }, path: { type: "string" } }, additionalProperties: false } } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  {
+    name: "select_project",
+    title: "Select active API project",
+    description: "Set the active API Forge project used when the dashboard next opens.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" } }, additionalProperties: false },
+    annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: true }
   },
   {
     name: "get_project",
@@ -411,10 +463,17 @@ function normalizeHeaders(headers = {}) {
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, String(value)]));
 }
 
-function nodeRequest(url, options, maxBytes, redirectsLeft = 5) {
+function nodeRequest(url, options, maxBytes, redirectsLeft = 5, redirects = []) {
   return new Promise((resolve, reject) => {
+    const started = performance.now();
+    const timing = { socketAssignedMs: null, dnsMs: null, tcpMs: null, tlsMs: null, firstByteMs: null, totalMs: null };
+    let lookupStarted;
+    let connectStarted;
+    let tlsStarted;
+    let remoteAddress = null;
     const transport = url.protocol === "https:" ? https : http;
     const request = transport.request(url, options, (response) => {
+      timing.firstByteMs = Math.round((performance.now() - started) * 10) / 10;
       const status = response.statusCode ?? 0;
       if ([301, 302, 303, 307, 308].includes(status) && response.headers.location && redirectsLeft > 0) {
         response.resume();
@@ -424,7 +483,7 @@ function nodeRequest(url, options, maxBytes, redirectsLeft = 5) {
           redirected.method = "GET"; redirected.body = undefined;
           delete redirected.headers?.["content-length"];
         }
-        resolve(nodeRequest(target, redirected, maxBytes, redirectsLeft - 1));
+        resolve(nodeRequest(target, redirected, maxBytes, redirectsLeft - 1, [...redirects, { status, from: url.toString(), to: target.toString() }]));
         return;
       }
       const chunks = [];
@@ -437,10 +496,22 @@ function nodeRequest(url, options, maxBytes, redirectsLeft = 5) {
         bytes += Math.min(chunk.length, remaining);
         if (chunk.length > remaining) truncated = true;
       });
-      response.on("end", () => resolve({
-        status, statusText: response.statusMessage ?? "", headers: Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value ?? ""])),
-        body: Buffer.concat(chunks).toString("utf8"), truncated, finalUrl: url.toString()
-      }));
+      response.on("end", () => {
+        timing.totalMs = Math.round((performance.now() - started) * 10) / 10;
+        resolve({
+          status, statusText: response.statusMessage ?? "", headers: Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value ?? ""])),
+          body: Buffer.concat(chunks).toString("utf8"), truncated, finalUrl: url.toString(),
+          trace: { protocol: url.protocol.replace(":", ""), host: url.hostname, port: Number(url.port || (url.protocol === "https:" ? 443 : 80)), remoteAddress, redirects, timing }
+        });
+      });
+    });
+    request.on("socket", (socket) => {
+      timing.socketAssignedMs = Math.round((performance.now() - started) * 10) / 10;
+      lookupStarted = performance.now();
+      socket.once("lookup", () => { timing.dnsMs = Math.round((performance.now() - lookupStarted) * 10) / 10; connectStarted = performance.now(); });
+      if (!connectStarted) connectStarted = performance.now();
+      socket.once("connect", () => { timing.tcpMs = Math.round((performance.now() - connectStarted) * 10) / 10; remoteAddress = socket.remoteAddress ?? null; tlsStarted = performance.now(); });
+      socket.once("secureConnect", () => { timing.tlsMs = Math.round((performance.now() - tlsStarted) * 10) / 10; });
     });
     request.setTimeout(options.timeoutMs, () => request.destroy(new Error(`Request timed out after ${options.timeoutMs} ms`)));
     request.on("error", reject);
@@ -464,8 +535,10 @@ export async function executeRequest(input, inheritedVariables = {}) {
 
   const headers = normalizeHeaders(substitute(input.headers ?? {}, variables));
   let body;
+  let requestBodyValue;
   if (input.body !== undefined && !["GET", "HEAD"].includes(method)) {
     const substitutedBody = substitute(input.body, variables);
+    requestBodyValue = substitutedBody;
     if (input.body_type === "form") {
       body = new URLSearchParams(Object.entries(substitutedBody ?? {}).map(([key, value]) => [key, String(value)]));
       if (!Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) headers["content-type"] = "application/x-www-form-urlencoded";
@@ -497,7 +570,7 @@ export async function executeRequest(input, inheritedVariables = {}) {
   try { json = captured.text ? JSON.parse(captured.text) : undefined; } catch { json = undefined; }
   const result = {
     name: input.name ?? `${method} ${url.pathname}`,
-    request: { method, url: response.finalUrl, headers: redactHeaders(headers) },
+    request: { method, url: response.finalUrl, headers: redactHeaders(headers), ...(requestBodyValue === undefined ? {} : { bodyShape: inferJsonShape(requestBodyValue) }) },
     status: response.status,
     status_text: response.statusText,
     ok: response.status >= 200 && response.status < 300,
@@ -505,7 +578,8 @@ export async function executeRequest(input, inheritedVariables = {}) {
     headers: redactHeaders(responseHeaders),
     body: captured.text,
     json,
-    truncated: captured.truncated
+    truncated: captured.truncated,
+    trace: response.trace
   };
   result.assertions = evaluateAssertions(input.assertions, { ...result, headers: responseHeaders });
   result.passed = result.assertions.every((assertion) => assertion.passed);
@@ -530,7 +604,7 @@ function toolResult(data, summary, isError = false) {
   };
 }
 
-async function dashboardResource() {
+export async function dashboardResource() {
   const [html, css, javascript] = await Promise.all([
     fs.readFile(path.join(UI_DIR, "index.html"), "utf8"),
     fs.readFile(path.join(UI_DIR, "styles.css"), "utf8"),
@@ -553,10 +627,38 @@ function configuredRoot(project, requestedRoot) {
   return requested;
 }
 
+function analysisRoot(project, requestedRoot) {
+  if (requestedRoot && project) return configuredRoot(project, requestedRoot);
+  if (requestedRoot) return path.resolve(requestedRoot);
+  const first = project?.sourceContext?.roots?.[0]?.path;
+  return first ? path.resolve(first) : process.cwd();
+}
+
+async function remoteBlastRadius(args) {
+  const url = process.env.AIPI_REMOTE_MCP_URL;
+  if (!url) return checkBlastRadius(registryFromEnvironment(), args);
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...(process.env.AIPI_REMOTE_TOKEN ? { authorization: `Bearer ${process.env.AIPI_REMOTE_TOKEN}` } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method: "tools/call", params: { name: "check_blast_radius", arguments: args } }) });
+  if (!response.ok) throw new Error(`Remote AIPI MCP returned HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) throw new Error(payload.error.message);
+  return payload.result?.structuredContent?.report;
+}
+
 function contextForLog(project, log) {
   const endpoint = (project.sourceContext?.endpoints ?? []).find((entry) => entry.method === log.method && normalizeRoute(entry.path) === normalizeRoute(log.url));
   const context = endpoint ? endpointContext(project, endpoint.id) : null;
   return context ? { endpoint: context.endpoint, consumer: context.consumers[0] ?? null, schemas: context.schemas, integrations: context.integrations } : {};
+}
+
+function responsePayload(result = {}) {
+  if (result.json !== undefined) return result.json;
+  try { return result.body ? JSON.parse(result.body) : undefined; }
+  catch { return undefined; }
+}
+
+function contractDiffFor(project, result, schemaName) {
+  const schemas = schemaName ? (project.sourceContext?.schemas ?? []).filter((entry) => entry.name.toLowerCase() === String(schemaName).toLowerCase()) : project.sourceContext?.schemas ?? [];
+  return diffObservedContract(responsePayload(result), schemas, result.request?.url ?? "");
 }
 
 function redactedRun(log) {
@@ -570,7 +672,8 @@ function redactedRun(log) {
       headers: redactRecord(result.headers ?? {}, true),
       body: json ? JSON.stringify(json).slice(0, 20_000) : String(result.body ?? result.error ?? "").slice(0, 20_000),
       truncated: Boolean(result.truncated || String(result.body ?? "").length > 20_000),
-      assertions: result.assertions ?? [], diagnosis: result.diagnosis ?? diagnosisFor(result), attempts: result.attempts ?? 1
+      assertions: result.assertions ?? [], diagnosis: result.diagnosis ?? diagnosisFor(result), attempts: result.attempts ?? 1,
+      trace: result.trace ?? null, contractDiff: result.contractDiff ?? null
     }
   };
 }
@@ -688,6 +791,88 @@ export async function callTool(name, args) {
     return log ? toolResult({ evidence: redactedRun(log) }, `${log.requestName}: saved evidence from ${log.createdAt}.`) : toolResult({ error: "Log not found" }, "Log not found.", true);
   }
 
+  if (name === "trace_route") {
+    const state = await loadState();
+    const project = findProject(state, args?.project_id);
+    if (args?.url) {
+      try {
+        const trace = await traceNextRoute({ root: analysisRoot(project, args.root), url: args.url, method: args.method ?? "GET" });
+        return toolResult({ trace }, trace.handler ? `${trace.method} ${trace.route} maps to ${trace.handler.file}:${trace.handler.line}; validation ${trace.validation?.kind ?? "not found"}; database ${trace.database?.source ?? "not found"}.` : `No Next.js App Router handler found for ${trace.method} ${trace.route}.`, !trace.handler);
+      } catch (error) { return toolResult({ error: error.message }, `Route trace failed: ${error.message}`, true); }
+    }
+    const savedRequest = project?.requests.find((entry) => entry.id === args?.request_id);
+    if (!project || !savedRequest) return toolResult({ error: "Project or saved request not found" }, "Project or saved request not found.", true);
+    const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(savedRequest.method);
+    if (unsafe && args?.allow_state_change !== true) return toolResult({ error: "State-changing request requires allow_state_change=true", method: savedRequest.method }, `Trace blocked: ${savedRequest.method} can change external state. Set allow_state_change=true only after explicit authorization.`, true);
+    const result = await executeSaved(executeRequest, project, savedRequest, { maxAttempts: args?.max_attempts ?? 1 });
+    result.contractDiff = contractDiffFor(project, result);
+    const log = await addHistory({ projectId: project.id, requestId: savedRequest.id, requestName: savedRequest.name, method: savedRequest.method, url: savedRequest.url, result, traceKind: "route" });
+    const context = contextForLog(project, { ...log, url: result.request?.url ?? log.url });
+    const evidence = { logId: log.id, request: { id: savedRequest.id, name: savedRequest.name, method: savedRequest.method, url: result.request?.url }, response: { status: result.status ?? null, ok: Boolean(result.ok), elapsedMs: result.elapsed_ms ?? null, shape: inferJsonShape(responsePayload(result)) }, trace: result.trace ?? null, contract: result.contractDiff, source: context };
+    return toolResult({ evidence }, `${savedRequest.method} ${normalizeRoute(result.request?.url ?? savedRequest.url)} traced in ${result.elapsed_ms ?? 0} ms: HTTP ${result.status ?? "error"}; contract ${result.contractDiff.status}; ${context.endpoint ? `backend ${context.endpoint.source}:${context.endpoint.line}` : "no backend source match"}.`, Boolean(result.error));
+  }
+
+  if (name === "diff_contract") {
+    if (args?.frontend_file && args?.backend_route) {
+      try {
+        const state = await loadState();
+        const project = findProject(state, args?.project_id);
+        const report = await diffFrontendBackend({ root: analysisRoot(project, args.root), frontendFile: args.frontend_file, backendRoute: args.backend_route, method: args.method ?? "POST" });
+        return toolResult({ diff: report }, report.mismatches.length ? `${report.mismatches.length} mismatch(es): ${report.mismatches.map((entry) => `${entry.field} frontend=${entry.frontend} backend=${entry.backend}`).join("; ")}` : "Frontend payload and backend validation schema are aligned.");
+      } catch (error) { return toolResult({ error: error.message }, `Contract diff failed: ${error.message}`, true); }
+    }
+    const state = await loadState();
+    const log = state.history.find((entry) => entry.id === args?.log_id);
+    const project = findProject(state, log?.projectId);
+    if (!log || !project) return toolResult({ error: "Run or project not found" }, "Run or project not found.", true);
+    const diff = contractDiffFor(project, log.result ?? {}, args?.schema_name);
+    return toolResult({ log_id: log.id, project_id: project.id, diff }, `Contract ${diff.status}${diff.schema ? ` against ${diff.schema.name}` : ""}: ${diff.missingRequiredFields.length} missing required, ${diff.unexpectedFields.length} unexpected, ${diff.typeMismatches.length} type mismatches.`);
+  }
+
+  if (name === "generate_fixture") {
+    if (args?.endpoint) {
+      try {
+        const generated = await generateObservedVitest({ root: analysisRoot(null, args.root), endpoint: args.endpoint, method: args.method ?? "GET", name: args.name ?? "observed API contract" });
+        const stem = normalizeRoute(args.endpoint).split("/").filter(Boolean).join("-") || "api";
+        return toolResult({ fixture: { format: "vitest", suggestedPath: `tests/${stem}.contract.test.ts`, content: generated.content, source: { trafficId: generated.observed.id, observedAt: generated.observed.observedAt }, writesFiles: false } }, `Generated a Vitest regression test from observed ${String(args.method ?? "GET").toUpperCase()} ${normalizeRoute(args.endpoint)} traffic. AIPI did not write files.`);
+      } catch (error) { return toolResult({ error: error.message }, `Fixture generation failed: ${error.message}`, true); }
+    }
+    const state = await loadState();
+    const log = state.history.find((entry) => entry.id === args?.log_id);
+    if (!log) return toolResult({ error: "Run not found" }, "Run not found.", true);
+    const payload = responsePayload(log.result ?? {});
+    if (payload === undefined) return toolResult({ error: "The run has no JSON response to turn into a fixture" }, "The run has no JSON response to turn into a fixture.", true);
+    const format = args?.format ?? "json";
+    const stem = String(args?.name || log.requestName || "api-fixture").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "api-fixture";
+    const generated = generateFixtureContent(payload, { format, name: args?.name || "apiFixture", method: log.method, route: log.result?.request?.url ?? log.url });
+    const fixture = { format, suggestedPath: `fixtures/${stem}.${generated.extension}`, content: generated.content, source: { logId: log.id, projectId: log.projectId, status: log.result?.status ?? null, observedAt: log.createdAt }, writesFiles: false };
+    return toolResult({ fixture }, `Generated a redacted ${format} fixture from run ${log.id}. AIPI did not write files; the AI editor can save it to ${fixture.suggestedPath}.`);
+  }
+
+  if (name === "run_local_diagnostic") {
+    const request = args?.request_payload ?? {};
+    const method = String(request.method ?? "GET").toUpperCase();
+    const root = analysisRoot(null, args?.root);
+    if (!["localhost", "127.0.0.1", "::1"].includes(new URL(request.url).hostname)) return toolResult({ error: "run_local_diagnostic accepts localhost targets only" }, "Diagnostic blocked: use api_request for explicitly authorized external systems.", true);
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && args?.allow_state_change !== true && request.replay !== false) return toolResult({ error: "State-changing replay requires allow_state_change=true" }, `Diagnostic replay blocked: ${method} can change local state.`, true);
+    let record = (await readTraffic(root, { route: request.url, method, limit: 1 }))[0] ?? null;
+    if (request.replay !== false) {
+      const replay = await executeRequest({ url: request.url, method, headers: request.headers ?? {}, body: request.body, body_type: typeof request.body === "string" ? "text" : "json" });
+      record = { id: `diagnostic_${crypto.randomUUID().replaceAll("-", "")}`, observedAt: new Date().toISOString(), request: { method, url: request.url, headers: redactHeaders(request.headers ?? {}), body: request.body }, response: { status: replay.status ?? null, headers: replay.headers ?? {}, body: replay.json ?? replay.body ?? replay.error } };
+    }
+    const diagnosis = diagnoseTraffic(record);
+    const trace = await traceNextRoute({ root, url: request.url, method });
+    const contractValidation = validatePayloadAgainstTrace(trace, request.body ?? record?.request?.body);
+    return toolResult({ diagnosis, trace, contractValidation, evidence: record }, `${diagnosis.category}: ${diagnosis.message}${trace.handler ? ` Handler ${trace.handler.file}:${trace.handler.line}.` : ""}${contractValidation.checked && !contractValidation.valid ? ` ${contractValidation.errors.length} request contract violation(s).` : ""}`, Number(record?.response?.status) >= 400 || !record);
+  }
+
+  if (name === "check_blast_radius") {
+    try {
+      const report = await remoteBlastRadius(args);
+      return toolResult({ report }, report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n"));
+    } catch (error) { return toolResult({ error: error.message }, `Blast-radius check failed: ${error.message}`, true); }
+  }
+
   if (name === "compare_runs") {
     const state = await loadState();
     const previous = state.history.find((entry) => entry.id === args?.previous_log_id);
@@ -750,19 +935,51 @@ export async function callTool(name, args) {
     if (!project) return toolResult({ error: "Project not found" }, "Project not found.", true);
     const source = project.sourceContext ?? {};
     const history = state.history.filter((entry) => entry.projectId === project.id);
+    const intelligence = summarizeProjectEvidence(project, history);
     const summary = {
       project: { id: project.id, name: project.name, description: project.description, goal: project.summary?.goal },
       libraries: project.summary?.libraries ?? [], tasks: project.summary?.tasks ?? [], iterations: project.summary?.iterations ?? [],
       inventory: { endpoints: source.endpoints?.length ?? 0, frontend_calls: source.frontendCalls?.length ?? 0, integrations: source.integrations?.length ?? 0, schemas: source.schemas?.length ?? 0, runs: history.length },
-      health: { healthy: source.integrations?.filter((entry) => entry.status === "healthy").length ?? 0, findings: source.findings?.length ?? 0, last_scan: source.lastScannedAt ?? null }
+      health: { healthy: source.integrations?.filter((entry) => entry.status === "healthy").length ?? 0, findings: source.findings?.length ?? 0, last_scan: source.lastScannedAt ?? null, status: intelligence.status },
+      corrections: intelligence.corrections,
+      evidence: intelligence.evidence,
+      recommended_next_actions: intelligence.recommendedNextActions
     };
-    return toolResult({ summary }, `${project.name}: ${summary.inventory.endpoints} endpoints, ${summary.health.healthy} healthy integrations, ${summary.health.findings} findings, ${summary.inventory.runs} runs.`);
+    return toolResult({ summary }, `${project.name}: ${summary.health.status}. Backend ${summary.corrections.backend.length}, frontend ${summary.corrections.frontend.length}, schema ${summary.corrections.schema.length}; ${summary.inventory.endpoints} endpoints and ${summary.inventory.runs} observed runs.`);
   }
 
   if (name === "list_projects") {
     const state = await loadState();
-    const projects = state.projects.map((project) => ({ id: project.id, name: project.name, description: project.description, requests: project.requests.length, environments: project.environments.map((environment) => ({ id: environment.id, name: environment.name })) }));
-    return toolResult({ projects }, `${projects.length} API Forge project${projects.length === 1 ? "" : "s"}.`);
+    const projects = state.projects.map((project) => ({ id: project.id, name: project.name, description: project.description, active: project.id === state.activeProjectId, requests: project.requests.length, environments: project.environments.map((environment) => ({ id: environment.id, name: environment.name })) }));
+    return toolResult({ projects, active_project_id: state.activeProjectId }, `${projects.length} API Forge project${projects.length === 1 ? "" : "s"}; ${projects.find((entry) => entry.active)?.name ?? "none"} is active.`);
+  }
+
+  if (name === "create_project") {
+    for (const root of args?.roots ?? []) {
+      const stats = await fs.stat(path.resolve(root.path));
+      if (!stats.isDirectory()) return toolResult({ error: `${root.path} is not a directory` }, `${root.path} is not a directory.`, true);
+    }
+    const newProject = defaultProject(args.name);
+    newProject.description = args.goal ?? "";
+    newProject.summary.goal = args.goal || newProject.summary.goal;
+    newProject.environments[0].name = args.environment_name || "Development";
+    newProject.environments[0].variables[0].value = args.base_url || "http://localhost:3000";
+    await mutateState((state) => {
+      state.projects.push(newProject);
+      state.activeProjectId = newProject.id;
+    });
+    if (args?.roots?.length) await scanProjectSource(newProject.id, args.roots);
+    return toolResult({ project: newProject }, `Created and selected project ${newProject.name}${args?.roots?.length ? ` with ${args.roots.length} source root(s)` : ""}.`);
+  }
+
+  if (name === "select_project") {
+    let selected;
+    await mutateState((state) => {
+      selected = findProject(state, args?.project_id);
+      if (!selected) throw new Error("Project not found");
+      state.activeProjectId = selected.id;
+    });
+    return toolResult({ project_id: selected.id, name: selected.name }, `Selected ${selected.name} as the active API Forge project.`);
   }
 
   if (name === "get_project") {
@@ -854,8 +1071,13 @@ async function handle(message) {
 
 let dashboardRuntime = { url: `http://127.0.0.1:${process.env.API_FORGE_PORT || 43127}` };
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+export async function startAipiRuntime() {
   dashboardRuntime = await startDashboard({ executeRequest });
+  return dashboardRuntime;
+}
+
+if (process.argv[1] && path.basename(process.argv[1]) === "api-forge-server.mjs" && fileURLToPath(import.meta.url) === process.argv[1]) {
+  await startAipiRuntime();
   const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false });
   input.on("line", (line) => {
     const trimmed = line.trim();

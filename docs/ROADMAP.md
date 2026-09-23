@@ -1,6 +1,6 @@
-# API Forge development roadmap
+# AIPI development roadmap
 
-This document tracks implementation against the comprehensive product plan. The current Codex plugin remains a working prototype while portable packages are extracted behind it.
+This document tracks implementation against the Local Companion + Remote MCP product plan.
 
 ## Current milestone: 0.3 foundation
 
@@ -10,7 +10,7 @@ Implemented:
 - OpenAPI import and local source scanning
 - Next.js, Express, Supabase Edge Function, FastAPI, fetch, Axios, and SQL-table recognition
 - Frontend-to-backend route matching with source locations and confidence
-- Mobile inspection dashboard with Project, APIs, Integration Map, Runs, and Summary routes
+- Mobile inspection dashboard with Home, Project summary, APIs, Integration Map, and Runs routes
 - Native Codex chat handoff through the MCP Apps bridge
 - Shared redaction, route normalization, run comparison, and fix-plan logic
 - Repository-native `.api-forge` JSON format with secret omission
@@ -18,6 +18,11 @@ Implemented:
 - Endpoint evidence, integration issues, run evidence, run comparison, fix planning, verification, and project export MCP tools
 - Native Vitest/Jest regression-test generation without overwrite
 - Next.js contract-mismatch fixture
+- Official MCP v2 stdio server with 2025/2026 protocol negotiation
+- MSW socket-level Node observer and explicit browser-compatible reverse proxy
+- `ts-morph` Next.js/Zod/frontend payload adapter with AJV validation
+- Hono/Cloudflare remote MCP worker and Supabase RLS contract registry
+- Cross-repository blast-radius tool and self-contained GitHub Action guard
 
 In progress for 0.3:
 
@@ -26,33 +31,34 @@ In progress for 0.3:
 - Add multipart and binary bodies
 - Add encrypted OS-backed secret storage
 - Track Git revisions and changed-since-verification status
-- Replace pattern matching with narrow AST adapters for Next.js, Express, and Supabase
-- Extract validation types and compare request/response/schema contracts
+- Add AST adapters for Express and Supabase Edge Functions after the Next.js wedge
+- Add PostgreSQL migration and live-local-database schema adapters
 
 ## Next milestone slices
 
-### 0.3.1 — deterministic contracts
+### 0.3.1 — schema depth
 
 - Versioned JSON Schema for project, environment, request, workflow, and run evidence files
 - Import/export round-trip tests
 - cURL import
-- Contract extraction from Zod and TypeScript types
+- OpenAPI/OAS version ingestion and `oasdiff` compatibility classification
+- Prisma/Drizzle relation, foreign-key, enum, and index extraction
 - Changed-file and commit metadata
 
-### 0.3.2 — complete wedge workflow
+### 0.3.2 — complete correction workflow
 
-- Detect the fixture's `number` → `UUID` mismatch deterministically
+- Expand deterministic `number` → `UUID` checks beyond literal fetch payloads
 - Produce an evidence bundle naming both source lines and the migration
 - Generate the correction plan with confidence and risk
 - Generate and execute the regression test
 - Compare the fixed run with the original failure
 
-### 0.4 — VS Code alpha
+### 0.4 — team alpha
 
-- Activity Bar container and project overview
-- Environment and collection trees
-- Request editor and response panel
-- Source navigation from Integration Map evidence
-- Commands backed by the shared CLI/core
+- OAuth 2.1 resource-server metadata and production identity
+- CI contract upload keyed by repository and Git commit SHA
+- GitHub App review comments and check summaries
+- Versioned dependency graph with branch-to-branch blast-radius checks
+- Retention, audit log, and organization administration
 
-Cloud, team collaboration, billing, hosted requests, and private runners remain deferred until private-beta demand gates are met.
+Billing, hosted request execution, and private runners remain deferred until private-beta demand gates are met.

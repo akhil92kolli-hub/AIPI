@@ -279,6 +279,29 @@ function recordMatches(pattern, text, makeEntry) {
   return results;
 }
 
+function splitSqlColumns(value) {
+  const parts = [];
+  let current = "";
+  let depth = 0;
+  for (const character of value) {
+    if (character === "(") depth += 1;
+    if (character === ")") depth = Math.max(0, depth - 1);
+    if (character === "," && depth === 0) { parts.push(current); current = ""; }
+    else current += character;
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+function parseSqlColumns(value) {
+  return splitSqlColumns(value).map((raw) => raw.trim()).filter(Boolean).flatMap((definition) => {
+    if (/^(constraint|primary\s+key|foreign\s+key|unique|check)\b/i.test(definition)) return [];
+    const match = definition.match(/^["'`]?([\w-]+)["'`]?\s+([^\s,]+(?:\s+(?:precision|varying))?)/i);
+    if (!match) return [];
+    return [{ name: match[1], type: match[2], nullable: !/\bnot\s+null\b/i.test(definition), primaryKey: /\bprimary\s+key\b/i.test(definition), hasDefault: /\bdefault\b/i.test(definition) }];
+  });
+}
+
 function detectFromFile(file, root, text) {
   const relative = relativeSource(root, file);
   const endpoints = [];
@@ -323,17 +346,20 @@ function detectFromFile(file, root, text) {
     endpoints.push({ id: newId("ep"), method: "POST", path: `/functions/v1/${edgeFunction[1]}`, source: relative, line: 1, framework: "Supabase Edge Functions", confidence: .82 });
   }
 
-  for (const entry of recordMatches(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/g, text, (match) => ({
-    id: newId("call"), method: "GET", path: match[1], source: relative, line: lineFor(text, match.index), client: "fetch", confidence: .86
-  }))) frontendCalls.push(entry);
+  for (const match of text.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/g)) {
+    const statementEnd = text.indexOf(";", match.index);
+    const nearby = text.slice(match.index, statementEnd >= 0 ? statementEnd + 1 : match.index + 1000);
+    const method = nearby.match(/method\s*:\s*["'`](GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)["'`]/i)?.[1]?.toUpperCase() ?? "GET";
+    frontendCalls.push({ id: newId("call"), method, path: match[1], source: relative, line: lineFor(text, match.index), client: "fetch", confidence: .9 });
+  }
   for (const entry of recordMatches(/axios\.(get|post|put|patch|delete)\s*\(\s*["'`]([^"'`]+)["'`]/gi, text, (match) => ({
     id: newId("call"), method: match[1].toUpperCase(), path: match[2], source: relative, line: lineFor(text, match.index), client: "Axios", confidence: .92
   }))) frontendCalls.push(entry);
   if (frontendCalls.some((entry) => entry.client === "Axios")) frameworks.add("Axios");
 
   if (/\.sql$/.test(relative)) {
-    for (const match of text.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:["'`]?\w+["'`]?\.)?["'`]?([\w-]+)["'`]?/gi)) {
-      schemas.push({ id: newId("schema"), name: match[1], kind: "table", source: relative, line: lineFor(text, match.index), confidence: .95 });
+    for (const match of text.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:["'`]?\w+["'`]?\.)?["'`]?([\w-]+)["'`]?\s*\(([\s\S]*?)\)\s*;/gi)) {
+      schemas.push({ id: newId("schema"), name: match[1], kind: "table", source: relative, line: lineFor(text, match.index), confidence: .95, columns: parseSqlColumns(match[2]) });
     }
   }
   return { endpoints, frontendCalls, schemas, frameworks: [...frameworks] };
@@ -427,11 +453,19 @@ export async function startDashboard({ executeRequest }) {
       }
       if (request.method === "POST" && url.pathname === "/api/projects") {
         const payload = await bodyJson(request); const project = defaultProject(payload.name || "New project");
+        const workspacePath = String(payload.workspacePath ?? "").trim();
+        if (workspacePath) {
+          const stats = await fs.stat(path.resolve(workspacePath));
+          if (!stats.isDirectory()) return json(response, 400, { error: "Workspace path must be a directory" });
+        }
         project.description = payload.goal || "";
         project.summary.goal = payload.goal || project.summary.goal;
         project.environments[0].name = payload.environmentName || "Development";
         project.environments[0].variables[0].value = payload.baseUrl || "http://localhost:3000";
-        await mutateState((state) => { state.projects.push(project); }); return json(response, 201, project);
+        await mutateState((state) => { state.projects.push(project); state.activeProjectId = project.id; });
+        if (workspacePath) await scanProjectSource(project.id, [{ kind: "workspace", path: workspacePath }]);
+        const current = await loadState();
+        return json(response, 201, current.projects.find((entry) => entry.id === project.id));
       }
       if (request.method === "POST" && url.pathname === "/api/import") {
         const project = await importDocument(await bodyJson(request));

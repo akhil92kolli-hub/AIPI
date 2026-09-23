@@ -1,7 +1,7 @@
 {
   "name": "aipi",
-  "version": "0.2.0+codex.20260922121908",
-  "description": "Local-first API integration intelligence for discovery, evidence-based diagnosis, fix planning, and native regression tests.",
+  "version": "0.3.0+codex.20260923074509",
+  "description": "Runtime API intelligence for route tracing, contract diagnosis, regression fixtures, CI guards, and cross-repository blast-radius checks.",
   "author": {
     "name": "Akhil Kolli"
   },
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "AIPI",
     "shortDescription": "From failing API to verified code fix",
-    "longDescription": "Map frontend calls to backend routes and schemas, execute APIs locally, inspect evidence, compare runs, create reviewed fix plans, and generate native regression tests through Codex.",
+    "longDescription": "Observe local API traffic, map frontend calls to backend routes and schemas, diagnose contract failures, generate native regression tests, guard pull requests, and check cross-repository blast radius through Codex.",
     "developerName": "Akhil Kolli",
     "category": "Developer Tools",
     "capabilities": [
@@ -30,8 +30,9 @@
     ],
     "defaultPrompt": [
       "Open my AIPI dashboard.",
-      "Review my API integration issues and propose a verification plan.",
-      "Diagnose my latest failed API request and create an evidence-based fix plan."
+      "Trace this API route and compare its frontend and backend contracts.",
+      "Diagnose my latest failed local request and generate a Vitest regression fixture.",
+      "Check the cross-repository blast radius of this proposed API schema change."
     ],
     "brandColor": "#F97316",
     "composerIcon": "./assets/icon.svg",

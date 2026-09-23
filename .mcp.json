@@ -2,7 +2,7 @@
   "mcpServers": {
     "aipi": {
       "command": "node",
-      "args": ["${PLUGIN_ROOT}/scripts/api-forge-server.mjs"],
+      "args": ["${PLUGIN_ROOT}/scripts/aipi-mcp-bundle.mjs"],
       "cwd": "${PLUGIN_ROOT}",
       "env": {
         "AIPI_DATA": "${PLUGIN_DATA}"

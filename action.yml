@@ -1,0 +1,21 @@
+name: AIPI Contract Guard
+description: Block pull requests when frontend API payloads violate Next.js Zod contracts.
+author: Akhil Kolli
+branding:
+  icon: shield
+  color: orange
+inputs:
+  root:
+    description: Repository directory to scan.
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Use Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Run AIPI contract guard
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/scripts/aipi-cli-bundle.mjs" guard "${{ inputs.root }}"

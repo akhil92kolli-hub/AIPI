@@ -1,6 +1,6 @@
 {
-  "name": "api-forge-codex-plugin",
-  "version": "0.2.0",
+  "name": "@aipi/companion",
+  "version": "0.3.0",
   "private": true,
   "description": "AIPI (AI-Programming Interface), a local API testing workspace for Codex and ChatGPT.",
   "type": "module",
@@ -9,15 +9,40 @@
     "aipi": "./packages/cli/bin/api-forge.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "scripts": {
+    "build": "npm run typecheck && npm run build:local && npm run build:cli",
+    "build:local": "esbuild src/local-mcp.ts --bundle --platform=node --format=esm --target=node22 --banner:js=\"import { createRequire as _aipiCreateRequire } from 'node:module'; import { fileURLToPath as _aipiFileURLToPath } from 'node:url'; import { dirname as _aipiDirname } from 'node:path'; const require = _aipiCreateRequire(import.meta.url); const __filename = _aipiFileURLToPath(import.meta.url); const __dirname = _aipiDirname(__filename);\" --outfile=scripts/aipi-mcp-bundle.mjs",
+    "build:cli": "esbuild packages/cli/bin/api-forge.mjs --bundle --platform=node --format=esm --target=node22 --banner:js=\"import { createRequire as _aipiCreateRequire } from 'node:module'; import { fileURLToPath as _aipiFileURLToPath } from 'node:url'; import { dirname as _aipiDirname } from 'node:path'; const require = _aipiCreateRequire(import.meta.url); const __filename = _aipiFileURLToPath(import.meta.url); const __dirname = _aipiDirname(__filename);\" --outfile=scripts/aipi-cli-bundle.mjs",
+    "typecheck": "tsc --noEmit",
     "showcase": "node scripts/showcase-server.mjs",
+    "demo:aipi": "node scripts/full-aipi-demo.mjs",
+    "benchmark:startup": "node scripts/startup-benchmark.mjs",
     "dashboard": "node scripts/start-dashboard.mjs",
-    "mcp": "node scripts/api-forge-server.mjs",
+    "mcp": "node scripts/aipi-mcp-bundle.mjs",
+    "mcp:dev": "tsx src/local-mcp.ts",
+    "mcp:remote": "node scripts/remote-mcp-server.mjs",
+    "observe": "node packages/cli/bin/api-forge.mjs observe",
+    "guard": "node packages/cli/bin/api-forge.mjs guard",
     "cli": "node packages/cli/bin/api-forge.mjs",
-    "test": "node scripts/self-test.mjs",
+    "test": "node scripts/self-test.mjs && tsx scripts/cloud-smoke.ts",
     "validate": "node scripts/validate-project.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@mswjs/interceptors": "^0.45.0",
+    "ajv": "^8.20.0",
+    "hono": "^4.13.8",
+    "ts-morph": "^28.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.136.3"
+  }
 }

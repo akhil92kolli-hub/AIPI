@@ -64,13 +64,15 @@ function normalizeProject(project) {
 }
 
 function initialState() {
-  return { version: 1, projects: [defaultProject("Starter project")], history: [] };
+  const project = defaultProject("Starter project");
+  return { version: 1, activeProjectId: project.id, projects: [project], history: [] };
 }
 
 export async function loadState() {
   try {
     const state = JSON.parse(await fs.readFile(DATA_FILE, "utf8"));
     state.projects = (state.projects ?? []).map(normalizeProject);
+    state.activeProjectId = state.projects.some((entry) => entry.id === state.activeProjectId) ? state.activeProjectId : state.projects[0]?.id;
     state.history ??= [];
     return state;
   } catch (error) {

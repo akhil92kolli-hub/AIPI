@@ -47,6 +47,14 @@ function project() {
   return state.projects.find((entry) => entry.id === selectedProjectId) ?? state.projects[0];
 }
 
+function selectProject(projectId) {
+  selectedProjectId = projectId;
+  state.activeProjectId = projectId;
+  try { localStorage.setItem("api-forge:selectedProject", projectId); } catch {}
+  selectedRequestId = project()?.requests[0]?.id;
+  scheduleSave();
+}
+
 function requestItem(id = selectedRequestId) {
   return project()?.requests.find((entry) => entry.id === id) ?? project()?.requests[0];
 }
@@ -77,12 +85,13 @@ function scheduleSave() {
 
 function route() {
   const value = location.hash.replace(/^#\/?/, "");
-  const [name = "project", id] = value.split("/");
-  return { name: name || "project", id };
+  const [name = "home", id] = value.split("/");
+  return { name: name || "home", id };
 }
 
 function navigate(target) {
   const next = target.startsWith("#") ? target : `#/${target.replace(/^\//, "")}`;
+  window.scrollTo({ top: 0, left: 0 });
   if (location.hash === next) render();
   else location.hash = next;
 }
@@ -111,6 +120,68 @@ function methodBadge(method) {
   return `<span class="method-badge method-${esc(method)}">${esc(method)}</span>`;
 }
 
+function requestRuns(requestId) {
+  return state.history
+    .filter((entry) => entry.projectId === project().id && entry.requestId === requestId)
+    .sort((left, right) => new Date(right.createdAt ?? 0) - new Date(left.createdAt ?? 0));
+}
+
+function lastRunStatus(log) {
+  if (!log) return { label: "Not run", tone: "neutral" };
+  const result = log.result ?? {};
+  const status = Number(result.status);
+  if (result.error || !result.ok) return { label: status ? `${status} Failed` : "Run failed", tone: "danger" };
+  if (result.passed === false) return { label: status ? `${status} Contract failed` : "Contract failed", tone: "danger" };
+  return { label: status ? `${status} Passed` : "Passed", tone: "success" };
+}
+
+function normalizedRoute(value) {
+  const withoutVariable = String(value ?? "").replace(/^\{\{baseUrl\}\}/, "");
+  try { return new URL(withoutVariable, "http://aipi.local").pathname; }
+  catch { return withoutVariable.split("?")[0] || "/"; }
+}
+
+function matchStatusForRequest(item) {
+  const current = project();
+  const routePath = normalizedRoute(item.url);
+  const integrations = current.sourceContext?.integrations ?? [];
+  const integration = integrations.find((entry) => entry.method === item.method && normalizedRoute(entry.path) === routePath);
+  if (integration) return integration.status;
+  const endpoint = (current.sourceContext?.endpoints ?? []).find((entry) => entry.method === item.method && normalizedRoute(entry.path) === routePath);
+  return endpoint ? "healthy" : "untested";
+}
+
+function runRow(entry) {
+  const runStatus = lastRunStatus(entry);
+  return `<button class="run-row" data-log-id="${entry.id}"><div>${methodBadge(entry.method)}<div><strong>${esc(entry.requestName)}</strong><span>${esc(entry.url)}</span></div></div><div><span class="status-tag ${runStatus.tone}">${esc(runStatus.label)}</span><span>${formatDate(entry.createdAt)}</span></div></button>`;
+}
+
+function projectCorrections(current = project()) {
+  const source = current.sourceContext ?? {};
+  const backend = [];
+  const frontend = [];
+  const schema = [];
+  for (const finding of source.findings ?? []) {
+    if (finding.type === "missing-backend") backend.push({ severity: finding.severity, title: finding.title, evidence: "Source scan" });
+    if (finding.type === "unused-backend") frontend.push({ severity: finding.severity, title: finding.title, evidence: "Backend route has no detected consumer" });
+  }
+  const runs = state.history.filter((entry) => entry.projectId === current.id);
+  for (const log of runs) {
+    const status = Number(log.result?.status);
+    if (status >= 500) backend.push({ severity: "high", title: `${log.requestName} returned HTTP ${status}`, evidence: `Run ${log.id}` });
+    if ([400, 404, 415, 422].includes(status)) frontend.push({ severity: "high", title: `${log.requestName} needs request or route correction`, evidence: `HTTP ${status}` });
+    if (log.result?.contractDiff?.status === "drift") {
+      const diff = log.result.contractDiff;
+      schema.push({ severity: "high", title: `${log.requestName} differs from ${diff.schema?.name ?? "schema"}`, evidence: `${diff.missingRequiredFields?.length ?? 0} missing · ${diff.unexpectedFields?.length ?? 0} unexpected · ${diff.typeMismatches?.length ?? 0} type mismatches` });
+    }
+  }
+  if ((source.endpoints?.length ?? 0) > 0 && !(source.schemas?.length ?? 0)) schema.push({ severity: "medium", title: "No database schema evidence connected", evidence: "Add migrations or schema files" });
+  const unique = (items) => items.filter((entry, index) => items.findIndex((candidate) => candidate.title === entry.title) === index);
+  const corrections = { backend: unique(backend), frontend: unique(frontend), schema: unique(schema) };
+  const count = corrections.backend.length + corrections.frontend.length + corrections.schema.length;
+  return { corrections, count, status: !source.lastScannedAt ? "insufficient-evidence" : count ? "needs-attention" : "aligned-from-current-evidence", tracedRuns: runs.filter((entry) => entry.result?.trace).length, contractDiffs: runs.filter((entry) => entry.result?.contractDiff).length };
+}
+
 function codexContext(action = "contextual") {
   const current = project();
   const source = current.sourceContext ?? {};
@@ -119,6 +190,7 @@ function codexContext(action = "contextual") {
   const log = currentRoute.name === "run" ? state.history.find((entry) => entry.id === currentRoute.id) : null;
   const request = currentRoute.name === "request" ? requestItem(currentRoute.id) : log ? requestItem(log.requestId) : null;
   const runs = state.history.filter((entry) => entry.projectId === current.id);
+  const intelligence = projectCorrections(current);
   const instruction = ({
     "review-project": "Review the project setup, source coverage, environment readiness, and integration findings. Recommend the next highest-value action.",
     "test-apis": "Review the API inventory, identify the most important unverified integrations, and propose a safe test plan before running anything state-changing.",
@@ -140,6 +212,7 @@ function codexContext(action = "contextual") {
       inventory: { endpoints: source.endpoints?.length ?? 0, frontendCalls: source.frontendCalls?.length ?? 0, schemas: source.schemas?.length ?? 0, integrations: source.integrations?.length ?? 0 },
       findings: (source.findings ?? []).slice(0, 12).map((entry) => ({ id: entry.id, severity: entry.severity, type: entry.type, title: entry.title }))
     },
+    corrections: intelligence,
     savedRequests: current.requests.length,
     runs: runs.length,
     request: request ? { id: request.id, name: request.name, method: request.method, url: request.url, assertionCount: request.assertions?.length ?? 0 } : null,
@@ -185,24 +258,18 @@ async function sendToCodex(action = "contextual") {
 }
 
 function shell(content, currentRoute) {
-  const current = project();
-  const activeRoot = ["request"].includes(currentRoute.name) ? "apis" : ["run"].includes(currentRoute.name) ? "runs" : currentRoute.name;
+  const activeRun = currentRoute.name === "run" ? state.history.find((entry) => entry.id === currentRoute.id) : null;
+  const activeRoot = ["request"].includes(currentRoute.name) || (activeRun && project().requests.some((entry) => entry.id === activeRun.requestId)) ? "apis" : ["run"].includes(currentRoute.name) ? "runs" : currentRoute.name === "summary" ? "project" : currentRoute.name;
   return `
     <div class="app-shell">
-      <header class="app-bar">
-        <button class="brand-button" data-route="project" aria-label="Open project overview"><span>API</span> Forge</button>
-        <div class="context-controls">
-          <div class="project-control"><label class="sr-only" for="projectSelect">Project</label>
-          <select id="projectSelect" class="context-select">${state.projects.map((entry) => `<option value="${entry.id}" ${entry.id === current.id ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}</select>
-          <button class="add-project-button" id="createProjectButton" aria-label="Create project" title="Create project">+</button></div>
-          <label class="sr-only" for="environmentSelect">Environment</label>
-          <select id="environmentSelect" class="context-select environment-select">${current.environments.map((entry) => `<option value="${entry.id}" ${entry.id === current.activeEnvironmentId ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}</select>
-        </div>
+      <header class="mobile-header">
+        <button class="header-home ${activeRoot === "home" ? "active" : ""}" data-route="home" ${activeRoot === "home" ? 'aria-current="page"' : ""}>Home</button>
+        <div class="header-actions"><button class="header-upgrade" id="upgradeButton">Upgrade</button><button class="header-settings" id="settingsButton">Settings</button></div>
       </header>
       <main class="route-view" data-route-name="${esc(currentRoute.name)}">${content}</main>
-      <button class="chat-launcher" data-codex-action="contextual" aria-label="Send this screen's context to Codex chat"><span>✦</span> Ask Codex</button>
+      <button class="chat-launcher" data-codex-action="contextual" aria-label="Send this screen's context to Codex chat"><span class="chat-spark">✦</span><span class="chat-label">Ask Codex</span></button>
       <nav class="bottom-nav" aria-label="Primary navigation">
-        ${[["project", "Project"], ["apis", "APIs"], ["map", "Map"], ["runs", "Runs"], ["summary", "Summary"]].map(([target, label]) => `<button class="nav-item ${activeRoot === target ? "active" : ""}" data-route="${target}" ${activeRoot === target ? 'aria-current="page"' : ""}><span>${label}</span></button>`).join("")}
+        ${[["project", "Project"], ["apis", "APIs"], ["map", "Map"], ["runs", "Runs"]].map(([target, label]) => `<button class="nav-item ${activeRoot === target ? "active" : ""}" data-route="${target}" ${activeRoot === target ? 'aria-current="page"' : ""}><span>${label}</span></button>`).join("")}
       </nav>
     </div>`;
 }
@@ -214,16 +281,37 @@ function render() {
   selectedRequestId = requestItem()?.id;
   const currentRoute = route();
   let content;
-  if (currentRoute.name === "project") content = renderProject();
+  if (currentRoute.name === "home") content = renderHome();
+  else if (currentRoute.name === "project") content = renderProject();
   else if (currentRoute.name === "apis") content = renderApis();
   else if (currentRoute.name === "request") content = renderRequest(currentRoute.id);
   else if (currentRoute.name === "map") content = renderIntegrationMap();
   else if (currentRoute.name === "runs") content = renderRuns();
   else if (currentRoute.name === "run") content = renderRun(currentRoute.id);
-  else if (currentRoute.name === "summary") content = renderSummary();
+  else if (currentRoute.name === "summary") content = renderProject();
   else content = renderProject();
   $("#app").className = "";
   $("#app").innerHTML = shell(content, currentRoute);
+}
+
+function renderHome() {
+  return `
+    <section class="home-hero">
+      <div class="product-mark"><img src="/aipi-logo.svg" alt="AIPI logo"><span class="logo-letter">A</span><span class="logo-neutral">i</span>-<span class="logo-letter">PI</span></div>
+      <p class="eyebrow">Local API workspace</p>
+      <h1>Your projects</h1>
+      <p>Select a project to inspect its source, environments, APIs, and local run history.</p>
+      <button class="primary-button large-button" id="createProjectPageButton">New project</button>
+    </section>
+    <section class="home-projects" aria-label="Projects">
+      <div class="section-heading"><div><p class="eyebrow">Workspace</p><h2>${state.projects.length} project${state.projects.length === 1 ? "" : "s"}</h2></div></div>
+      <div class="project-card-list">${state.projects.map((entry) => {
+        const source = entry.sourceContext ?? {};
+        const runs = state.history.filter((item) => item.projectId === entry.id).length;
+        const env = entry.environments.find((item) => item.id === entry.activeEnvironmentId) ?? entry.environments[0];
+        return `<button class="project-card" data-select-project="${entry.id}"><span class="project-avatar">${esc(entry.name.slice(0, 1).toUpperCase())}</span><span class="project-card-copy"><strong>${esc(entry.name)}</strong><small>${esc(entry.summary?.goal || entry.description || "API project")}</small><span class="project-card-meta">${esc(env?.name ?? "No environment")} · ${entry.requests.length} request${entry.requests.length === 1 ? "" : "s"} · ${runs} run${runs === 1 ? "" : "s"}</span></span><span class="project-card-arrow" aria-hidden="true">›</span></button>`;
+      }).join("")}</div>
+    </section>`;
 }
 
 function renderProject() {
@@ -232,19 +320,11 @@ function renderProject() {
   const healthy = (source.integrations ?? []).filter((entry) => entry.status === "healthy").length;
   const findings = source.findings ?? [];
   const runs = state.history.filter((entry) => entry.projectId === current.id);
+  const evidenceStatus = !source.lastScannedAt ? "Not enough evidence yet" : findings.length ? `${findings.length} integration finding${findings.length === 1 ? "" : "s"}` : "Current source evidence is aligned";
   return `
     <section class="page-heading">
-      <div><p class="eyebrow">Local project</p><h1>${esc(current.name)}</h1><p>${esc(current.summary?.goal || "Connect source, discover APIs, and verify every integration.")}</p></div>
-      <button class="primary-button" data-codex-action="review-project">Review setup</button>
-    </section>
-
-    <section class="project-picker section-block">
-      <div class="section-heading"><div><p class="eyebrow">Workspace</p><h2>${state.projects.length} project${state.projects.length === 1 ? "" : "s"}</h2></div><button class="secondary-button" id="createProjectPageButton">New project</button></div>
-      <div class="project-list">${state.projects.map((entry) => {
-        const active = entry.id === current.id;
-        const lastScan = entry.sourceContext?.lastScannedAt;
-        return `<button class="project-row ${active ? "active" : ""}" data-select-project="${entry.id}" ${active ? 'aria-current="true"' : ""}><span class="project-avatar">${esc(entry.name.slice(0, 1).toUpperCase())}</span><span><strong>${esc(entry.name)}</strong><small>${entry.requests.length} request${entry.requests.length === 1 ? "" : "s"} · ${lastScan ? `scanned ${formatDate(lastScan)}` : "not scanned"}</small></span><b>${active ? "Current" : "Open"}</b></button>`;
-      }).join("")}</div>
+      <div><button class="text-back-button" data-route="home">All projects</button><p class="eyebrow">Project</p><h1>${esc(current.name)}</h1><p>${esc(current.summary?.goal || "Connect source, discover APIs, and verify every integration.")}</p></div>
+      <button class="secondary-button" id="editProjectButton">Edit project</button>
     </section>
 
     <section class="health-strip" aria-label="Project API health">
@@ -255,27 +335,37 @@ function renderProject() {
     </section>
 
     <section class="section-block">
+      <div class="section-heading"><div><p class="eyebrow">Project information</p><h2>About this workspace</h2></div><button class="quiet-button" id="editProjectSecondary">Edit</button></div>
+      <div class="detail-list"><div><span>Description</span><strong>${esc(current.description || "No description added")}</strong></div><div><span>Project ID</span><strong>${esc(current.id)}</strong></div><div><span>Updated</span><strong>${formatDate(current.updatedAt)}</strong></div></div>
+    </section>
+
+    <section class="section-block">
       <div class="section-heading"><div><p class="eyebrow">Source context</p><h2>${source.lastScannedAt ? `${source.filesScanned} files indexed` : "Connect your codebase"}</h2></div><button class="quiet-button" id="scanSourceSecondary">Edit</button></div>
       ${source.roots?.length ? `<div class="source-list">${source.roots.map((entry) => `<div class="source-row"><div><strong>${esc(entry.kind)}</strong><span>${esc(entry.path)}</span></div><span class="status-text success">Included</span></div>`).join("")}</div>` : `<div class="empty-message"><h3>Give Codex the missing context</h3><p>Add frontend, backend, schema, tests, or a local Git clone. AIPI scans locally and stores only derived metadata.</p><button class="secondary-button" id="connectSourceEmpty">Choose folders</button></div>`}
       ${source.frameworks?.length ? `<div class="tag-row">${source.frameworks.map((entry) => `<span class="tag">${esc(entry)}</span>`).join("")}</div>` : ""}
       <p class="supporting-copy">${source.lastScannedAt ? `Last scanned ${formatDate(source.lastScannedAt)}.` : "Remote Git cloning is staged for a later release; use an existing local clone today."}</p>
     </section>
 
-    <section class="section-block">
-      <div class="section-heading"><div><p class="eyebrow">Environment</p><h2>${esc(environment()?.name ?? "Development")}</h2></div><button class="quiet-button" id="manageVariablesButton">Manage</button></div>
-      <div class="variable-summary">${(environment()?.variables ?? []).slice(0, 4).map((entry) => `<div><span>${esc(entry.key)}</span><strong>${entry.secret ? "Secret set" : esc(entry.value || "Not set")}</strong></div>`).join("") || `<p>No environment variables configured.</p>`}</div>
+    <section class="section-block environment-section">
+      <div class="section-heading"><div><p class="eyebrow">Environments</p><h2>${current.environments.length} configured</h2></div><button class="secondary-button" id="createEnvironmentButton">New environment</button></div>
+      <div class="environment-list">${current.environments.map((entry) => {
+        const active = entry.id === current.activeEnvironmentId;
+        const baseUrl = entry.variables?.find((item) => item.key === "baseUrl")?.value;
+        return `<div class="environment-card ${active ? "active" : ""}"><button class="environment-select-button" data-select-environment="${entry.id}"><span><strong>${esc(entry.name)}</strong><small>${esc(baseUrl || `${entry.variables?.length ?? 0} variables`)}</small></span><b>${active ? "Active" : "Use"}</b></button>${active ? `<button class="quiet-button" id="manageVariablesButton">Edit</button>` : ""}</div>`;
+      }).join("")}</div>
     </section>
 
     <section class="section-block">
-      <div class="section-heading"><div><p class="eyebrow">Needs attention</p><h2>${findings.length ? `${findings.length} integration finding${findings.length === 1 ? "" : "s"}` : "Everything found is aligned"}</h2></div><button class="quiet-button" data-route="apis">View APIs</button></div>
-      ${findings.length ? `<div class="finding-list">${findings.slice(0, 4).map((entry) => `<button data-route="apis"><span class="status-mark ${statusClass(entry.type)}">${entry.severity === "high" ? "High" : "Check"}</span><span>${esc(entry.title)}</span></button>`).join("")}</div>` : `<p class="supporting-copy">Scan source and run discovered APIs to build verified integration health.</p>`}
-    </section>`;
+      <div class="section-heading"><div><p class="eyebrow">Evidence status</p><h2>${evidenceStatus}</h2></div><button class="quiet-button" data-route="apis">View APIs</button></div>
+      ${findings.length ? `<div class="finding-list">${findings.slice(0, 4).map((entry) => `<button data-route="apis"><span class="status-mark ${statusClass(entry.type)}">${entry.severity === "high" ? "High" : "Check"}</span><span>${esc(entry.title)}</span></button>`).join("")}</div>` : `<p class="supporting-copy">${source.lastScannedAt ? "No source-level route mismatch is currently detected. Trace representative routes to verify runtime contracts." : "Connect source and database schema, then trace representative APIs before treating this project as aligned."}</p>`}
+    </section>
+    ${renderProjectSummary()}`;
 }
 
 function endpointRows() {
   const current = project();
   const discovered = current.sourceContext?.endpoints ?? [];
-  const rows = current.requests.map((entry) => ({ kind: "request", id: entry.id, method: entry.method, path: entry.url, name: entry.name, status: state.history.some((log) => log.projectId === current.id && log.requestId === entry.id && log.result?.ok) ? "healthy" : "untested", source: "Saved request" }));
+  const rows = current.requests.map((entry) => ({ kind: "request", id: entry.id, method: entry.method, path: entry.url, name: entry.name, status: matchStatusForRequest(entry), latestRun: requestRuns(entry.id)[0], source: "Saved request" }));
   const known = new Set(rows.map((entry) => `${entry.method}:${entry.path}`));
   for (const endpoint of discovered) {
     if (!known.has(`${endpoint.method}:{{baseUrl}}${endpoint.path}`) && !known.has(`${endpoint.method}:${endpoint.path}`)) rows.push({ kind: "discovered", id: endpoint.id, method: endpoint.method, path: endpoint.path, name: endpoint.path, status: "untested", source: endpoint.source, endpoint });
@@ -284,13 +374,19 @@ function endpointRows() {
 }
 
 function renderApis() {
+  const current = project();
+  const activeEnvironment = environment();
   const integrations = project().sourceContext?.integrations ?? [];
   let rows = endpointRows();
   if (apiFilter !== "all") rows = rows.filter((entry) => entry.status === apiFilter || integrations.some((integration) => integration.method === entry.method && integration.path === entry.path && integration.status === apiFilter));
   return `
     <section class="page-heading compact-heading"><div><p class="eyebrow">API inventory</p><h1>Requests</h1><p>Inspect discovered routes here, then plan and run tests with Codex.</p></div><button class="primary-button" data-codex-action="test-apis">Test with Codex</button></section>
+    <section class="api-environment-bar"><label for="apiEnvironmentSelect"><span>Environment</span><select id="apiEnvironmentSelect">${current.environments.map((entry) => `<option value="${entry.id}" ${entry.id === current.activeEnvironmentId ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}</select></label><div><span>Base URL</span><strong>${esc(activeEnvironment?.variables?.find((entry) => entry.key === "baseUrl")?.value || "Not configured")}</strong></div></section>
     <section class="filter-bar"><label><span class="sr-only">Filter APIs</span><select id="apiFilter">${[["all", "All APIs"], ["healthy", "Matched"], ["untested", "Untested"], ["missing-backend", "Missing backend"], ["unused-backend", "No consumer"]].map(([value, label]) => `<option value="${value}" ${apiFilter === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><span>${rows.length} shown</span></section>
-    <section class="api-list">${rows.length ? rows.map((entry) => `<button class="api-row" ${entry.kind === "request" ? `data-request-id="${entry.id}"` : `data-discovered-id="${entry.id}"`}><div class="api-row-main">${methodBadge(entry.method)}<div><strong>${esc(entry.name)}</strong><span>${esc(entry.path)}</span></div></div><div class="api-row-meta"><span>${esc(entry.source)}</span><span class="status-text ${statusClass(entry.status)}">${statusLabel(entry.status)}</span></div></button>`).join("") : `<div class="empty-message"><h3>No APIs in this view</h3><p>Connect source code or create a request manually.</p><button class="secondary-button" id="emptyNewRequest">Create request</button></div>`}</section>`;
+    <section class="api-list">${rows.length ? rows.map((entry) => {
+      const runStatus = lastRunStatus(entry.latestRun);
+      return `<button class="api-row" ${entry.kind === "request" ? `data-request-id="${entry.id}"` : `data-discovered-id="${entry.id}"`}><div class="api-row-main">${methodBadge(entry.method)}<div><strong>${esc(entry.name)}</strong><span>${esc(entry.path)}</span></div></div><div class="api-row-meta"><div class="api-row-tags"><span class="status-tag ${runStatus.tone}">${esc(runStatus.label)}</span><span class="status-tag ${statusClass(entry.status)}">${esc(statusLabel(entry.status))}</span></div>${entry.latestRun ? `<time class="api-run-time" datetime="${esc(entry.latestRun.createdAt)}">Last tested ${esc(formatDate(entry.latestRun.createdAt))}</time>` : `<span class="api-run-time">Never tested</span>`}</div></button>`;
+    }).join("") : `<div class="empty-message"><h3>No APIs in this view</h3><p>Connect source code or create a request manually.</p><button class="secondary-button" id="emptyNewRequest">Create request</button></div>`}</section>`;
 }
 
 function renderIntegrationMap() {
@@ -332,8 +428,11 @@ function renderRequest(id) {
   const item = requestItem(id);
   if (!item) return `<div class="empty-message"><h2>Request not found</h2><button class="secondary-button" data-route="apis">Back to APIs</button></div>`;
   selectedRequestId = item.id;
+  const logs = requestRuns(item.id);
+  const latestStatus = lastRunStatus(logs[0]);
+  const matchStatus = matchStatusForRequest(item);
   return `
-    <section class="request-route-head"><button class="back-button" data-route="apis">Back to APIs</button><div><p class="eyebrow">Request</p><input id="requestName" class="title-input" value="${esc(item.name)}" aria-label="Request name"></div></section>
+    <section class="request-route-head"><button class="back-button" data-route="apis">Back to APIs</button><div><p class="eyebrow">Request</p><input id="requestName" class="title-input" value="${esc(item.name)}" aria-label="Request name"><div class="request-statuses"><span class="status-tag ${latestStatus.tone}">${esc(latestStatus.label)}</span><span class="status-tag ${statusClass(matchStatus)}">${esc(statusLabel(matchStatus))}</span></div></div></section>
     <section class="request-composer">
       <div class="composer-row"><select id="methodSelect" class="method-select">${methods.map((method) => `<option ${method === item.method ? "selected" : ""}>${method}</option>`).join("")}</select><input id="urlInput" class="url-input" value="${esc(item.url)}" placeholder="{{baseUrl}}/api/resource" spellcheck="false"></div>
       <button class="run-button" id="runRequestButton">Run request <span>⌘↵</span></button>
@@ -345,7 +444,8 @@ function renderRequest(id) {
       <details><summary><span>Body</span><span>${item.body?.type ?? "json"}</span></summary><div class="details-body"><label class="field-label">Body type<select id="bodyType" class="field">${[["json", "JSON"], ["text", "Text"], ["form", "Form URL encoded"]].map(([value, label]) => `<option value="${value}" ${item.body?.type === value ? "selected" : ""}>${label}</option>`).join("")}</select></label><textarea id="bodyContent" class="code-input" spellcheck="false">${esc(item.body?.content ?? "")}</textarea></div></details>
       <details><summary><span>Tests</span><span>${item.assertions?.length ?? 0} assertions</span></summary><div class="details-body">${renderAssertions(item.assertions ?? [])}</div></details>
       <details><summary><span>Advanced</span><span>Certificates, scripts, retry</span></summary><div class="details-body"><label class="toggle-row"><input type="checkbox" id="retryEnabled" ${item.retry?.enabled ? "checked" : ""}><span>Retry transient failures automatically</span></label><label class="field-label">Endpoint notes<textarea id="docsContent" class="text-input">${esc(item.docs ?? "")}</textarea></label></div></details>
-    </section>`;
+    </section>
+    <section class="api-runs-section" aria-labelledby="apiRunsHeading"><div class="api-runs-heading"><div><p class="eyebrow">Run evidence</p><h2 id="apiRunsHeading">Runs for this API</h2><p>${logs.length ? `${logs.length} local attempt${logs.length === 1 ? "" : "s"}, newest first.` : "Run this request to capture response and contract evidence."}</p></div><button class="secondary-button" id="runRequestSecondary">Run now</button></div><div class="run-list embedded-run-list">${logs.length ? logs.map(runRow).join("") : `<div class="empty-message compact-empty"><h3>No runs yet</h3><p>The first result will appear here and stay attached to this API.</p></div>`}</div></section>`;
 }
 
 function renderAuthFields(item) {
@@ -362,17 +462,18 @@ function renderAssertions(assertions) {
 
 function renderRuns() {
   const logs = state.history.filter((entry) => entry.projectId === project().id);
-  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Local evidence</p><h1>Runs</h1><p>Every attempt stays on this machine with its response, assertions, and diagnosis.</p></div><button class="primary-button" data-codex-action="review-runs">Review with Codex</button></section><section class="run-list">${logs.length ? logs.map((entry) => `<button class="run-row" data-log-id="${entry.id}"><div>${methodBadge(entry.method)}<div><strong>${esc(entry.requestName)}</strong><span>${esc(entry.url)}</span></div></div><div><span class="status-text ${entry.result?.ok ? "success" : "danger"}">${entry.result?.status ?? "Error"}</span><span>${formatDate(entry.createdAt)}</span></div></button>`).join("") : `<div class="empty-message"><h3>No local runs yet</h3><p>Ask Codex to choose and run a safe first test, or open APIs to compose one manually.</p><button class="secondary-button" data-codex-action="test-apis">Plan first test</button></div>`}</section>`;
+  return `<section class="page-heading compact-heading"><div><p class="eyebrow">Local evidence</p><h1>Runs</h1><p>Every attempt stays on this machine with its response, assertions, and diagnosis.</p></div><button class="primary-button" data-codex-action="review-runs">Review with Codex</button></section><section class="run-list">${logs.length ? logs.map(runRow).join("") : `<div class="empty-message"><h3>No local runs yet</h3><p>Ask Codex to choose and run a safe first test, or open APIs to compose one manually.</p><button class="secondary-button" data-codex-action="test-apis">Plan first test</button></div>`}</section>`;
 }
 
 function renderRun(id) {
   const log = state.history.find((entry) => entry.id === id);
   if (!log) return `<div class="empty-message"><h2>Run not found</h2><button class="secondary-button" data-route="runs">Back to runs</button></div>`;
+  const parentRequest = project().requests.find((entry) => entry.id === log.requestId);
   const result = log.result ?? {};
   const success = Boolean(result.ok && result.passed !== false);
   const body = result.json ? JSON.stringify(result.json, null, 2) : result.body ?? result.error ?? "No response body";
   return `
-    <section class="request-route-head"><button class="back-button" data-route="runs">Back to runs</button><div><p class="eyebrow">Run evidence</p><h1>${esc(log.requestName)}</h1></div></section>
+    <section class="request-route-head"><button class="back-button" data-route="${parentRequest ? `request/${parentRequest.id}` : "runs"}">${parentRequest ? "Back to API" : "Back to runs"}</button><div><p class="eyebrow">Run evidence</p><h1>${esc(log.requestName)}</h1></div></section>
     <section class="run-hero ${success ? "success-surface" : "failure-surface"}"><div><p class="eyebrow">${success ? "Run completed" : "Run needs attention"}</p><h2>${methodBadge(log.method)} ${esc(result.request?.url ?? log.url)}</h2><p>${result.status ? `HTTP ${result.status}` : "Network error"} · ${result.elapsed_ms ?? 0} ms · ${formatDate(log.createdAt)}</p></div><button class="secondary-button" data-rerun-log="${log.id}">Run again</button></section>
     <section class="timeline" aria-label="Run timeline">
       <div class="timeline-step"><span class="step-label">1</span><div><h3>Connected</h3><p>${result.error ? esc(result.error) : `Reached ${esc(hostFor(result.request?.url ?? log.url))}`}</p></div><span>${Math.max(1, Math.round((result.elapsed_ms ?? 0) * .2))} ms</span></div>
@@ -383,13 +484,17 @@ function renderRun(id) {
     <section class="codex-summary"><p class="eyebrow">Codex-ready evidence</p><h2>${esc(result.diagnosis?.category ?? (success ? "Request completed" : "Request failed"))}</h2><p>${esc(result.diagnosis?.summary ?? (success ? "The endpoint returned successfully. Add assertions to turn this run into a reusable contract." : "Review the response evidence and relevant source context before changing code."))}</p>${result.diagnosis?.suggestions?.length ? `<ul>${result.diagnosis.suggestions.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul>` : ""}<div class="action-row"><button class="primary-button" data-codex-action="diagnose-run">Ask Codex to continue</button><button class="secondary-button" data-save-contract="${log.requestId}">Save as contract</button></div></section>`;
 }
 
-function renderSummary() {
+function renderProjectSummary() {
   const current = project();
   const source = current.sourceContext ?? {};
   const tasks = current.summary?.tasks ?? [];
+  const intelligence = projectCorrections(current);
+  const correctionCard = (label, items, empty) => `<article class="correction-card"><div><p class="eyebrow">${label}</p><strong>${items.length}</strong></div>${items.length ? `<div class="correction-list">${items.slice(0, 3).map((entry) => `<div><span class="severity-dot ${entry.severity === "high" ? "danger" : "warning"}"></span><p><b>${esc(entry.title)}</b><small>${esc(entry.evidence)}</small></p></div>`).join("")}</div>` : `<p class="correction-empty">${empty}</p>`}</article>`;
   return `
-    <section class="page-heading compact-heading"><div><p class="eyebrow">Project intelligence</p><h1>Summary</h1><p>Living context for Codex, documentation, and implementation status.</p></div><button class="primary-button" data-codex-action="plan-project">Plan with Codex</button></section>
-    <section class="section-block"><p class="eyebrow">Project goal</p><textarea id="projectGoal" class="goal-input">${esc(current.summary?.goal ?? "")}</textarea></section>
+    <section class="summary-heading"><div><p class="eyebrow">Project summary</p><h2>${intelligence.status === "needs-attention" ? `${intelligence.count} correction${intelligence.count === 1 ? "" : "s"} need review` : intelligence.status === "insufficient-evidence" ? "Evidence is not complete yet" : "Current evidence is aligned"}</h2><p>Backend, frontend, and schema status derived from source scans and observed traffic.</p></div><button class="primary-button" data-codex-action="plan-project">Plan with Codex</button></section>
+    <section class="evidence-strip"><div><span>Last source scan</span><strong>${formatDate(source.lastScannedAt)}</strong></div><div><span>Traced runs</span><strong>${intelligence.tracedRuns}</strong></div><div><span>Contract comparisons</span><strong>${intelligence.contractDiffs}</strong></div></section>
+    <section class="correction-grid">${correctionCard("Backend problems", intelligence.corrections.backend, source.lastScannedAt ? "No backend problem detected in current evidence." : "Scan backend source to establish requirements.")}${correctionCard("Frontend corrections", intelligence.corrections.frontend, source.lastScannedAt ? "No frontend correction detected in current evidence." : "Connect frontend source to compare API usage.")}${correctionCard("Schema issues", intelligence.corrections.schema, source.schemas?.length ? "No schema drift detected in traced responses." : "Connect schema files to validate response contracts.")}</section>
+    <section class="section-block"><p class="eyebrow">Project goal</p><textarea id="projectGoal" class="goal-input" aria-label="Project goal">${esc(current.summary?.goal ?? "")}</textarea></section>
     <section class="section-block"><div class="section-heading"><div><p class="eyebrow">Detected architecture</p><h2>${source.frameworks?.length ? source.frameworks.join(", ") : "Scan source to detect libraries"}</h2></div></div><div class="summary-grid"><div><strong>${source.endpoints?.length ?? 0}</strong><span>Backend endpoints</span></div><div><strong>${source.frontendCalls?.length ?? 0}</strong><span>Frontend calls</span></div><div><strong>${source.schemas?.length ?? 0}</strong><span>Database objects</span></div><div><strong>${source.integrations?.filter((entry) => entry.status === "healthy").length ?? 0}</strong><span>Verified matches</span></div></div></section>
     <section class="section-block"><div class="section-heading"><div><p class="eyebrow">Implementation status</p><h2>Plan, build, test</h2></div></div><div class="task-list">${tasks.length ? tasks.map((entry) => `<div><span class="task-status">${esc(entry.status)}</span><strong>${esc(entry.title)}</strong></div>`).join("") : `<p class="supporting-copy">Connect source to generate API-specific tasks and iteration history.</p>`}</div></section>
     <section class="section-block"><div class="section-heading"><div><p class="eyebrow">Recent iterations</p><h2>${current.summary?.iterations?.length ?? 0} recorded</h2></div></div><div class="iteration-list">${(current.summary?.iterations ?? []).slice().reverse().map((entry) => `<div><strong>${esc(entry.label)}</strong><span>${formatDate(entry.at)}</span></div>`).join("") || `<p class="supporting-copy">Scans, verified runs, and code corrections will appear here.</p>`}</div></section>`;
@@ -399,6 +504,7 @@ function openModal(title, body, confirmLabel, onConfirm) {
   $("#modalTitle").textContent = title;
   $("#modalBody").innerHTML = body;
   $("#modalConfirm").textContent = confirmLabel;
+  $("#modalConfirm").disabled = false;
   $("#modalConfirm").onclick = async (event) => {
     event.preventDefault();
     try { await onConfirm(); $("#modal").close(); }
@@ -435,6 +541,62 @@ function openVariablesModal() {
   });
 }
 
+function openCreateEnvironmentModal() {
+  openModal("New environment", `<p class="modal-intro">Add a local, preview, staging, or production target for this project.</p>
+    <label class="field-label">Environment name<input class="field" id="newEnvironmentName" autocomplete="off" placeholder="Staging"></label>
+    <label class="field-label">Base URL<input class="field" id="newEnvironmentBaseUrl" value="http://localhost:3000" spellcheck="false" placeholder="https://api.example.com"></label>
+    <p class="supporting-copy">You can add tokens and other variables after creating the environment.</p>`, "Create environment", async () => {
+    const name = $("#newEnvironmentName").value.trim();
+    const baseUrl = $("#newEnvironmentBaseUrl").value.trim();
+    if (!name) throw new Error("Enter an environment name");
+    const current = project();
+    const created = { id: uid("env"), name, variables: baseUrl ? [{ key: "baseUrl", value: baseUrl, enabled: true, secret: false }] : [] };
+    current.environments.push(created);
+    current.activeEnvironmentId = created.id;
+    current.updatedAt = new Date().toISOString();
+    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    render();
+    toast(`${name} environment created`);
+  });
+  queueMicrotask(() => $("#newEnvironmentName")?.focus());
+}
+
+function openEditProjectModal() {
+  const current = project();
+  openModal("Edit project", `<label class="field-label">Project name<input class="field" id="editProjectName" value="${esc(current.name)}"></label>
+    <label class="field-label">Project goal<textarea class="text-input compact-input" id="editProjectGoal">${esc(current.summary?.goal ?? "")}</textarea></label>
+    <label class="field-label">Description<textarea class="text-input compact-input" id="editProjectDescription" placeholder="What does this project contain?">${esc(current.description ?? "")}</textarea></label>`, "Save changes", async () => {
+    const name = $("#editProjectName").value.trim();
+    if (!name) throw new Error("Enter a project name");
+    current.name = name;
+    current.description = $("#editProjectDescription").value.trim();
+    current.summary ??= {};
+    current.summary.goal = $("#editProjectGoal").value.trim();
+    current.updatedAt = new Date().toISOString();
+    await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+    render();
+    toast("Project updated");
+  });
+}
+
+function openSettingsModal() {
+  let startRoute = "home";
+  try { startRoute = localStorage.getItem("aipi:startRoute") || "home"; } catch {}
+  openModal("Settings", `<p class="modal-intro">Choose how AIPI opens in this Codex panel. Project data and run evidence remain local.</p>
+    <label class="field-label">Start screen<select class="field" id="startRouteSetting"><option value="home" ${startRoute === "home" ? "selected" : ""}>Home</option><option value="project" ${startRoute === "project" ? "selected" : ""}>Current project</option></select></label>
+    <div class="settings-note"><span>Storage</span><strong>Local workspace</strong></div>
+    <div class="settings-note"><span>Current project</span><strong>${esc(project().name)}</strong></div>`, "Save settings", async () => {
+    try { localStorage.setItem("aipi:startRoute", $("#startRouteSetting").value); } catch {}
+    toast("Settings saved");
+  });
+}
+
+function openUpgradeModal() {
+  openModal("Upgrade AIPI", `<p class="modal-intro">The local developer workspace is active. Team workspaces, shared collections, and hosted run history are planned for the upgrade tier.</p>
+    <div class="upgrade-card"><p class="eyebrow">Coming next</p><h3>Team workspace</h3><ul><li>Shared API collections and contracts</li><li>Collaborative environments with secret controls</li><li>Hosted run history and CI checks</li></ul></div>
+    <p class="supporting-copy">Billing is not connected in this local build.</p>`, "Got it", async () => {});
+}
+
 function openCreateProjectModal() {
   openModal("Create project", `<p class="modal-intro">Create a local API workspace. You can connect more frontend, backend, database, test, or documentation folders afterward.</p>
     <label class="field-label">Project name<input class="field" id="newProjectName" autocomplete="off" placeholder="Billing service"></label>
@@ -451,12 +613,11 @@ function openCreateProjectModal() {
       name,
       goal: $("#newProjectGoal").value.trim(),
       environmentName: $("#newEnvironmentName").value.trim(),
-      baseUrl: $("#newBaseUrl").value.trim()
+      baseUrl: $("#newBaseUrl").value.trim(),
+      workspacePath
     }) });
-    if (workspacePath) await api("/api/scan", { method: "POST", body: JSON.stringify({ projectId: created.id, roots: [{ kind: "workspace", path: workspacePath }] }) });
     state = await api("/api/state");
-    selectedProjectId = created.id;
-    selectedRequestId = project()?.requests[0]?.id;
+    selectProject(created.id);
     navigate("project");
     render();
     toast(workspacePath ? "Project created and source indexed" : "Project created");
@@ -511,7 +672,9 @@ document.addEventListener("click", async (event) => {
   const log = event.target.closest("[data-log-id]");
   if (log) { navigate(`run/${log.dataset.logId}`); return; }
   const projectButton = event.target.closest("[data-select-project]");
-  if (projectButton) { selectedProjectId = projectButton.dataset.selectProject; selectedRequestId = project()?.requests[0]?.id; navigate("project"); render(); return; }
+  if (projectButton) { selectProject(projectButton.dataset.selectProject); navigate("project"); render(); return; }
+  const environmentButton = event.target.closest("[data-select-environment]");
+  if (environmentButton) { project().activeEnvironmentId = environmentButton.dataset.selectEnvironment; project().updatedAt = new Date().toISOString(); scheduleSave(); render(); toast("Environment selected"); return; }
   const integrationButton = event.target.closest("[data-integration-id]");
   if (integrationButton) {
     const source = project().sourceContext ?? {};
@@ -523,9 +686,13 @@ document.addEventListener("click", async (event) => {
   }
   if (event.target.closest("#scanSourceSecondary, #connectSourceEmpty")) { openSourceModal(); return; }
   if (event.target.closest("#manageVariablesButton")) { openVariablesModal(); return; }
+  if (event.target.closest("#createEnvironmentButton")) { openCreateEnvironmentModal(); return; }
+  if (event.target.closest("#editProjectButton, #editProjectSecondary")) { openEditProjectModal(); return; }
+  if (event.target.closest("#settingsButton")) { openSettingsModal(); return; }
+  if (event.target.closest("#upgradeButton")) { openUpgradeModal(); return; }
   if (event.target.closest("#createProjectButton, #createProjectPageButton")) { openCreateProjectModal(); return; }
   if (event.target.closest("#newRequestButton, #emptyNewRequest")) { newRequest(); return; }
-  if (event.target.closest("#runRequestButton")) { await runRequest(); return; }
+  if (event.target.closest("#runRequestButton, #runRequestSecondary")) { await runRequest(); return; }
   const rerun = event.target.closest("[data-rerun-log]");
   if (rerun) { const entry = state.history.find((item) => item.id === rerun.dataset.rerunLog); await runRequest(entry?.requestId); return; }
   if (event.target.closest("[data-save-contract]")) { toast("Saved request is ready for reuse and regression-test generation"); return; }
@@ -542,8 +709,9 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.id === "projectSelect") { selectedProjectId = event.target.value; selectedRequestId = project()?.requests[0]?.id; render(); return; }
+  if (event.target.id === "projectSelect") { selectProject(event.target.value); render(); return; }
   if (event.target.id === "environmentSelect") { project().activeEnvironmentId = event.target.value; scheduleSave(); render(); return; }
+  if (event.target.id === "apiEnvironmentSelect") { project().activeEnvironmentId = event.target.value; project().updatedAt = new Date().toISOString(); scheduleSave(); render(); toast("API environment changed"); return; }
   if (event.target.id === "apiFilter") { apiFilter = event.target.value; render(); return; }
   const item = requestItem();
   if (!item) return;
@@ -576,9 +744,15 @@ window.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrl
 
 async function init() {
   state = await api("/api/state");
-  selectedProjectId = state.projects[0]?.id;
+  let rememberedProjectId;
+  try { rememberedProjectId = localStorage.getItem("api-forge:selectedProject"); } catch {}
+  selectedProjectId = state.projects.some((entry) => entry.id === rememberedProjectId) ? rememberedProjectId : state.projects.some((entry) => entry.id === state.activeProjectId) ? state.activeProjectId : state.projects[0]?.id;
   selectedRequestId = project()?.requests[0]?.id;
-  if (!location.hash) location.hash = "#/project";
+  if (!location.hash) {
+    let startRoute = "home";
+    try { startRoute = localStorage.getItem("aipi:startRoute") || "home"; } catch {}
+    location.hash = `#/${startRoute}`;
+  }
   render();
 }
 
