@@ -54,14 +54,14 @@ Install and initialize the companion:
 
 ```bash
 cd /path/to/your/project
-npx @akhil92kolli-hub/aipi-companion init
-npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
+npx @vmise/aipi-companion init
+npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 For one-off execution, use:
 
 ```bash
-npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
+npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 Register the local MCP server in the IDE:

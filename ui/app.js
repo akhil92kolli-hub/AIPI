@@ -933,6 +933,6 @@ init().catch((error) => {
     ? "This dashboard shell loaded, but the browser could not reach the local companion for this session. Restart AIPI from your project root to create a fresh local token."
     : "The hosted dashboard is only the UI shell. Your project data, API traffic, credentials, logs, and MCP tools live in the local companion.";
   const appUrl = `${location.origin}${location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`}`;
-  const command = `npx @akhil92kolli-hub/aipi-companion init\nnpx @akhil92kolli-hub/aipi-companion open --app ${appUrl}`;
+  const command = `npx @vmise/aipi-companion init\nnpx @vmise/aipi-companion open --app ${appUrl}`;
   $("#app").innerHTML = `<div class="fatal-error"><p class="eyebrow">Cloud UI · Local engine</p><h1>${title}</h1><p>${copy}</p><pre class="command-snippet"><code>${esc(command)}</code></pre><p class="supporting-copy">Run this from the project root. AIPI starts or reuses <code>127.0.0.1:49152</code>, creates a short-lived <code>sec_...</code> token, then opens <code>/dashboard/#port=...&amp;token=...</code>.</p><div class="action-row"><a class="primary-button" href="/install.html">Read installation guide</a><a class="secondary-button" href="/">Back to AIPI website</a></div><small>${esc(error.message)}</small></div>`;
 });

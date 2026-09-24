@@ -31,6 +31,18 @@ The token is held in browser session storage, is not written to project data, an
 
 Opening the hosted `/dashboard/` route directly is a documentation/onboarding state, not a connected workspace. A connected dashboard URL must be launched by `aipi open` or `aipi dev` so the browser receives the loopback `port` and ephemeral `token` launch parameters.
 
+### How the connection token works
+
+The token is a local session credential, not a Cloudflare login:
+
+1. The daemon creates a cryptographically random `sec_...` token and binds only to `127.0.0.1`.
+2. `aipi open` places the daemon port and token in the dashboard launch hash, for example `https://www.aipi.website/dashboard/#port=49152&token=sec_...`.
+3. The dashboard reads the hash in the browser and stores the token in temporary `sessionStorage`.
+4. Browser requests go directly to `http://127.0.0.1:49152` with `Authorization: Bearer sec_...`.
+5. The daemon rejects missing or invalid tokens on protected API routes. When the companion exits, the session ends; run `aipi open` again to create a fresh token.
+
+Cloudflare serves the HTML, CSS, and JavaScript only. It does not proxy or receive the local token, source code, credentials, API traffic, response bodies, logs, or project evidence.
+
 ## Evidence timeline
 
 `workspace.json` version 2 contains the canonical local `timeline`. Events are append-only project facts with bounded, redacted evidence:
@@ -55,14 +67,14 @@ Install AIPI from its plugin marketplace entry, then start a new Codex task. The
 
 ```bash
 cd /path/to/your/project
-npx @akhil92kolli-hub/aipi-companion init
-npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
+npx @vmise/aipi-companion init
+npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 For one-off execution, run:
 
 ```bash
-npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
+npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 Register the local MCP server in the editor:
