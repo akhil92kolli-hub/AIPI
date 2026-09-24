@@ -22,17 +22,18 @@
       <div class="hero-actions"><a class="button button-dark" href="#quickstart">Start the quickstart <span>↓</span></a><a class="text-link" href="docs.html">Read documentation ↗</a></div>
     </section>
     <section class="quickstart-banner" id="quickstart">
-      <div><p class="eyebrow">Recommended path</p><h2>One command to open the local-first workflow.</h2></div>
-      <pre><code>npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/</code></pre>
-      <p>Run it from your project root. AIPI starts the companion on loopback, creates a short-lived token, and opens the dashboard.</p>
+      <div><p class="eyebrow">Recommended path</p><h2>One setup command, then automatic local-first workflow.</h2></div>
+      <pre><code>npx @akhil92kolli-hub/aipi-companion init
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/</code></pre>
+      <p>Run both commands from your project root. <code>init</code> detects your app and wires IDE MCP settings; <code>open</code> starts or reuses the local daemon and opens the connected dashboard.</p>
     </section>
     <section class="content-grid install-grid">
       <article class="content-card">
         <p class="eyebrow">01 · Install</p>
         <h2>Install the local companion</h2>
-        <pre><code>npm install -g @akhil92kolli-hub/aipi-companion
-aipi open --app https://aipi.website/dashboard/</code></pre>
-        <p>The companion binds to loopback by default. It does not open your project to the public internet.</p>
+        <pre><code>npx @akhil92kolli-hub/aipi-companion init
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/</code></pre>
+        <p>The companion is published on npm and binds to loopback by default. It does not open your project to the public internet.</p>
       </article>
       <article class="content-card">
         <p class="eyebrow">02 · Connect your IDE</p>
@@ -50,16 +51,26 @@ aipi open --app https://aipi.website/dashboard/</code></pre>
       <article class="content-card">
         <p class="eyebrow">03 · Connect</p>
         <h2>Open the cloud-rendered dashboard</h2>
-        <ol class="step-list"><li><code>aipi open</code> starts the loopback companion.</li><li>A short-lived local session token is generated.</li><li>The hosted dashboard opens with the local port and token.</li><li>The browser talks directly to <code>127.0.0.1</code>; API work remains local.</li></ol>
+        <ol class="step-list"><li><code>aipi init</code> writes <code>.aipirc.json</code> and IDE MCP settings.</li><li><code>aipi open</code> starts or reuses the loopback daemon.</li><li>A short-lived token is placed in the dashboard hash.</li><li>The browser talks directly to <code>127.0.0.1</code>; API work remains local.</li></ol>
         <p>The current release uses direct authenticated loopback. An optional outbound pairing bridge is a later enterprise phase.</p>
       </article>
       <article class="content-card accent-card">
-        <p class="eyebrow">04 · Prerequisites</p>
+        <p class="eyebrow">04 · MCP and daemon</p>
+        <h2>One local engine for every client</h2>
+        <pre><code>{
+  "mcpServers": {
+    "aipi": { "command": "aipi", "args": ["mcp"] }
+  }
+}</code></pre>
+        <p><code>aipi mcp</code> is a thin stdio client. It reuses the daemon started by the dashboard or starts one silently when an IDE calls it.</p>
+      </article>
+      <article class="content-card accent-card">
+        <p class="eyebrow">05 · Prerequisites</p>
         <h2>What you need</h2>
         <div class="check-list"><p>✓ Node.js 20 or newer</p><p>✓ A local JavaScript or TypeScript project</p><p>✓ Cursor, Windsurf, Claude Desktop, or another MCP client (optional)</p><p>✓ No account, database, or Docker required for the local core</p></div>
       </article>
       <article class="content-card">
-        <p class="eyebrow">05 · Data boundary</p>
+        <p class="eyebrow">06 · Data boundary</p>
         <h2>Local by default</h2>
         <div class="check-list"><p>✓ Source code and credentials stay local</p><p>✓ API execution and response bodies stay local</p><p>✓ Logs and evidence stay in the local workspace</p><p>○ Optional contract metadata can be synchronized for teams</p></div>
       </article>
