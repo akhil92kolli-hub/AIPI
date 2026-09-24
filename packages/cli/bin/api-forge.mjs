@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
@@ -10,12 +11,12 @@ import { diffFrontendBackend, generateObservedVitest, guardNextProject, traceNex
 import { diagnoseTraffic, readTraffic, startTrafficProxy } from "../../local-observer/index.mjs";
 import { executeRequest } from "../../../scripts/api-forge-server.mjs";
 import { startDashboard } from "../../../scripts/dashboard-server.mjs";
-import { callTool } from "../../../scripts/api-forge-server.mjs";
+import { callTool, setAipiRuntime } from "../../../scripts/api-forge-server.mjs";
 
 const execFileAsync = promisify(execFile);
 
 function usage() {
-  return `AIPI CLI\n\nUsage:\n  aipi mcp\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://app.aipi.dev/dashboard/]\n  aipi dev [--app http://localhost:8788/dashboard/]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n    aipi handoff latest [project-id]
+  return `AIPI CLI\n\nUsage:\n  aipi init [--root .]\n  aipi mcp\n  aipi daemon [--port 49152]\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://app.aipi.dev/dashboard/]\n  aipi dev [--app http://localhost:8788/dashboard/]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n    aipi handoff latest [project-id]
     aipi handoff copy <handoff-id>
   `;
 }
@@ -25,17 +26,165 @@ function option(args, name, fallback) {
   return index >= 0 ? args[index + 1] : fallback;
 }
 
+const DEFAULT_PORT = 49152;
+const MAX_PORT = 49160;
+const cliPath = fileURLToPath(import.meta.url);
+
+async function exists(target) {
+  try { await fs.access(target); return true; }
+  catch { return false; }
+}
+
+async function findProjectRoot(start = ".") {
+  let current = path.resolve(start);
+  while (true) {
+    if (await exists(path.join(current, ".git")) || await exists(path.join(current, "package.json"))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(start);
+    current = parent;
+  }
+}
+
+async function detectSourceRoots(root) {
+  const candidates = [["frontend", "apps/web"], ["frontend", "web"], ["frontend", "frontend"], ["backend", "apps/api"], ["backend", "api"], ["backend", "backend"], ["database", "supabase"], ["database", "prisma"], ["tests", "tests"]];
+  const roots = [];
+  for (const [kind, relative] of candidates) {
+    try {
+      if ((await fs.stat(path.join(root, relative))).isDirectory()) roots.push({ kind, path: relative });
+    } catch {}
+  }
+  return roots.length ? roots : [{ kind: "workspace", path: "." }];
+}
+
+async function configureMcpFile(filePath, root, vscode = false) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  let config = {};
+  try { config = JSON.parse(await fs.readFile(filePath, "utf8")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  const key = vscode ? "servers" : "mcpServers";
+  config[key] ??= {};
+  config[key].aipi = { ...(config[key].aipi ?? {}), command: "npx", args: ["-y", "@vmise/aipi-companion", "mcp", "--root", root], ...(vscode ? { type: "stdio" } : {}) };
+  await fs.writeFile(filePath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+async function configureCodex(root) {
+  const file = path.join(root, ".codex", "config.toml");
+  let content = "";
+  try { content = await fs.readFile(file, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  // Preserve existing custom server settings rather than rewriting arbitrary TOML.
+  if (/^\s*\[mcp_servers\.(?:aipi|"aipi"|'aipi')(?:\.|\])/m.test(content)) return;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, `${content}\n[mcp_servers.aipi]\ncommand = "npx"\nargs = ${JSON.stringify(["-y", "@vmise/aipi-companion", "mcp", "--root", root])}\nstartup_timeout_sec = 60\n`);
+}
+
+async function connectProject(daemon, root) {
+  const headers = { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" };
+  const state = await fetchJson(`${daemon.url}/api/state`, { headers, timeout: 10000 });
+  if (!state) throw new Error("Could not load companion state. Run the command again to reconnect.");
+  let project = state.projects.find((entry) => entry.sourceContext?.roots?.some((source) => path.resolve(source.path) === root));
+  if (!project) {
+    project = await fetchJson(`${daemon.url}/api/projects`, { method: "POST", headers, timeout: 120000, body: JSON.stringify({ name: path.basename(root), workspacePath: root }) });
+    if (!project?.id) throw new Error("Project registration failed. Companion is running; rerun setup to retry.");
+  }
+  const selected = await fetchJson(`${daemon.url}/api/tools/call`, { method: "POST", headers, timeout: 10000, body: JSON.stringify({ name: "select_project", arguments: { project_id: project.id } }) });
+  if (!selected || selected.isError) throw new Error("Could not select the project in AIPI.");
+  return project;
+}
+
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeout ?? 450);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch { return null; }
+  finally { clearTimeout(timeout); }
+}
+
+async function probeDaemon() {
+  const ports = new Set([Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || DEFAULT_PORT)]);
+  for (let port = DEFAULT_PORT; port <= MAX_PORT; port += 1) ports.add(port);
+  for (const port of ports) {
+    const connection = await fetchJson(`http://127.0.0.1:${port}/api/connection`);
+    if (connection?.connected && connection?.token) return { ...connection, url: `http://127.0.0.1:${connection.port || port}` };
+  }
+  return null;
+}
+
+async function ensureDaemon({ quiet = false } = {}) {
+  const running = await probeDaemon();
+  if (running) return running;
+  const child = spawn(process.execPath, [cliPath, "daemon"], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, AIPI_PORT: String(process.env.AIPI_PORT || DEFAULT_PORT), AIPI_MAX_PORT: String(process.env.AIPI_MAX_PORT || MAX_PORT) }
+  });
+  child.unref();
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const connection = await probeDaemon();
+    if (connection) return connection;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  if (!quiet) process.stderr.write("AIPI daemon did not become ready on loopback. Try `aipi dev` for details.\n");
+  return null;
+}
+
+function appLaunchUrl(app, daemon, projectName) {
+  const base = new URL(app);
+  if (!["https:", "http:"].includes(base.protocol)) throw new Error("Dashboard URL must use HTTP or HTTPS");
+  const params = new URLSearchParams({ port: String(daemon.port), token: daemon.token });
+  if (projectName) params.set("project", projectName);
+  base.hash = params.toString();
+  return base.href;
+}
+
 async function main() {
-  const [command, ...args] = process.argv.slice(2);
-  if (!command || ["-h", "--help", "help"].includes(command)) {
+  let [command = "init", ...args] = process.argv.slice(2);
+  if (["-h", "--help", "help"].includes(command)) {
     process.stdout.write(usage());
     return;
   }
+  if (command === "init") {
+    const root = await findProjectRoot(option(args, "--root", "."));
+    const roots = await detectSourceRoots(root);
+    process.chdir(root);
+    let previous = {};
+    try { previous = JSON.parse(await fs.readFile(path.join(root, ".aipirc.json"), "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
+    const config = { version: 1, name: path.basename(root), root, roots, ...previous };
+    await fs.writeFile(path.join(root, ".aipirc.json"), `${JSON.stringify(config, null, 2)}\n`);
+    const configured = [];
+    await configureMcpFile(path.join(root, ".cursor", "mcp.json"), root); configured.push("Cursor");
+    await configureMcpFile(path.join(root, ".vscode", "mcp.json"), root, true); configured.push("VS Code");
+    await configureCodex(root); configured.push("Codex");
+    process.stdout.write(`Configured AIPI for ${configured.join(", ")}.\nProject root: ${root}\nSource roots: ${roots.map((entry) => `${entry.kind}:${entry.path}`).join(", ")}\nRestart your IDE window to activate MCP.\n`);
+    if (args.includes("--config-only")) return;
+    command = "open";
+  }
+  if (command === "daemon") {
+    const port = option(args, "--port");
+    if (port) process.env.AIPI_PORT = port;
+    const dashboard = await startDashboard({ executeRequest, callTool });
+    setAipiRuntime(dashboard);
+    process.stdout.write(`AIPI daemon listening on ${dashboard.url}\n`);
+    const close = () => dashboard.server.close(() => process.exit(0));
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+    return;
+  }
   if (command === "mcp") {
+    process.chdir(await findProjectRoot(option(args, "--root", ".")));
+    const daemon = await ensureDaemon({ quiet: true });
+    if (daemon) await connectProject(daemon, process.cwd());
     const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
     const scriptsDirectory = path.basename(currentDirectory) === "scripts" ? currentDirectory : path.resolve(currentDirectory, "../../../scripts");
     const serverPath = path.join(scriptsDirectory, "aipi-mcp-bundle.mjs");
-    const child = spawn(process.execPath, [serverPath], { stdio: "inherit", env: process.env });
+    const child = spawn(process.execPath, [serverPath], {
+      stdio: "inherit",
+      env: daemon ? { ...process.env, AIPI_DAEMON_URL: daemon.url, AIPI_DAEMON_TOKEN: daemon.token, AIPI_PORT: String(daemon.port) } : process.env
+    });
     const signal = (name) => { if (!child.killed) child.kill(name); };
     process.once("SIGINT", () => signal("SIGINT"));
     process.once("SIGTERM", () => signal("SIGTERM"));
@@ -91,18 +240,21 @@ async function main() {
     return;
   }
   if (command === "open" || command === "dev") {
-    const dashboard = await startDashboard({ executeRequest });
-    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://app.aipi.dev/dashboard/");
-    const url = `${app}?port=${dashboard.port}&token=${encodeURIComponent(dashboard.token)}`;
-    process.stdout.write(`AIPI Local Companion active on ${dashboard.url}\nOpening ${url}\n`);
-    if (command === "open") {
+    const root = await findProjectRoot(option(args, "--root", "."));
+    process.chdir(root);
+    process.stdout.write("Connecting your project to AIPI…\n");
+    const daemon = await ensureDaemon();
+    if (!daemon) throw new Error("AIPI daemon is not available");
+    const project = await connectProject(daemon, root);
+    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://aipi.website/dashboard/");
+    const url = appLaunchUrl(app, daemon, project.id);
+    process.stdout.write(`AIPI Local Companion active on ${daemon.url}\nOpening ${url}\n`);
+    if (command === "open" && !args.includes("--no-open")) {
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-      const openerArgs = process.platform === "win32" ? ["/c", "start", url] : [url];
-      await execFileAsync(opener, openerArgs);
+      const openerArgs = process.platform === "win32" ? ["/c", "start", "", url.replace(/&/g, "^&")] : [url];
+      try { await execFileAsync(opener, openerArgs); }
+      catch { process.stderr.write("Browser could not open automatically. Open the dashboard link above on this computer.\n"); }
     }
-    const close = () => dashboard.server.close(() => process.exit(0));
-    process.once("SIGINT", close);
-    process.once("SIGTERM", close);
     return;
   }
   if (command === "trace") {

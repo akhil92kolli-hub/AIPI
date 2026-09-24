@@ -10557,10 +10557,10 @@ var require_typescript = __commonJS({
       function and(f, g) {
         return (arg) => f(arg) && g(arg);
       }
-      function or(...fs10) {
+      function or(...fs11) {
         return (...args) => {
           let lastResult;
-          for (const f of fs10) {
+          for (const f of fs11) {
             lastResult = f(...args);
             if (lastResult) {
               return lastResult;
@@ -12135,7 +12135,7 @@ ${lanes.join("\n")}
       var tracing;
       var tracingEnabled;
       ((tracingEnabled2) => {
-        let fs10;
+        let fs11;
         let traceCount = 0;
         let traceFd = 0;
         let mode;
@@ -12144,9 +12144,9 @@ ${lanes.join("\n")}
         const legend = [];
         function startTracing2(tracingMode, traceDir, configFilePath) {
           Debug.assert(!tracing, "Tracing already started");
-          if (fs10 === void 0) {
+          if (fs11 === void 0) {
             try {
-              fs10 = __require("fs");
+              fs11 = __require("fs");
             } catch (e) {
               throw new Error(`tracing requires having fs
 (original error: ${e.message || e})`);
@@ -12157,8 +12157,8 @@ ${lanes.join("\n")}
           if (legendPath === void 0) {
             legendPath = combinePaths(traceDir, "legend.json");
           }
-          if (!fs10.existsSync(traceDir)) {
-            fs10.mkdirSync(traceDir, { recursive: true });
+          if (!fs11.existsSync(traceDir)) {
+            fs11.mkdirSync(traceDir, { recursive: true });
           }
           const countPart = mode === "build" ? `.${process.pid}-${++traceCount}` : mode === "server" ? `.${process.pid}` : ``;
           const tracePath = combinePaths(traceDir, `trace${countPart}.json`);
@@ -12168,10 +12168,10 @@ ${lanes.join("\n")}
             tracePath,
             typesPath
           });
-          traceFd = fs10.openSync(tracePath, "w");
+          traceFd = fs11.openSync(tracePath, "w");
           tracing = tracingEnabled2;
           const meta = { cat: "__metadata", ph: "M", ts: 1e3 * timestamp(), pid: 1, tid: 1 };
-          fs10.writeSync(
+          fs11.writeSync(
             traceFd,
             "[\n" + [{ name: "process_name", args: { name: "tsc" }, ...meta }, { name: "thread_name", args: { name: "Main" }, ...meta }, { name: "TracingStartedInBrowser", ...meta, cat: "disabled-by-default-devtools.timeline" }].map((v) => JSON.stringify(v)).join(",\n")
           );
@@ -12180,10 +12180,10 @@ ${lanes.join("\n")}
         function stopTracing() {
           Debug.assert(tracing, "Tracing is not in progress");
           Debug.assert(!!typeCatalog.length === (mode !== "server"));
-          fs10.writeSync(traceFd, `
+          fs11.writeSync(traceFd, `
 ]
 `);
-          fs10.closeSync(traceFd);
+          fs11.closeSync(traceFd);
           tracing = void 0;
           if (typeCatalog.length) {
             dumpTypes(typeCatalog);
@@ -12255,11 +12255,11 @@ ${lanes.join("\n")}
         function writeEvent(eventType, phase, name, args, extras, time = 1e3 * timestamp()) {
           if (mode === "server" && phase === "checkTypes") return;
           mark("beginTracing");
-          fs10.writeSync(traceFd, `,
+          fs11.writeSync(traceFd, `,
 {"pid":1,"tid":1,"ph":"${eventType}","cat":"${phase}","ts":${time},"name":"${name}"`);
-          if (extras) fs10.writeSync(traceFd, `,${extras}`);
-          if (args) fs10.writeSync(traceFd, `,"args":${JSON.stringify(args)}`);
-          fs10.writeSync(traceFd, `}`);
+          if (extras) fs11.writeSync(traceFd, `,${extras}`);
+          if (args) fs11.writeSync(traceFd, `,"args":${JSON.stringify(args)}`);
+          fs11.writeSync(traceFd, `}`);
           mark("endTracing");
           measure("Tracing", "beginTracing", "endTracing");
         }
@@ -12281,9 +12281,9 @@ ${lanes.join("\n")}
           var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
           mark("beginDumpTypes");
           const typesPath = legend[legend.length - 1].typesPath;
-          const typesFd = fs10.openSync(typesPath, "w");
+          const typesFd = fs11.openSync(typesPath, "w");
           const recursionIdentityMap = /* @__PURE__ */ new Map();
-          fs10.writeSync(typesFd, "[");
+          fs11.writeSync(typesFd, "[");
           const numTypes = types.length;
           for (let i = 0; i < numTypes; i++) {
             const type = types[i];
@@ -12379,13 +12379,13 @@ ${lanes.join("\n")}
               flags: Debug.formatTypeFlags(type.flags).split("|"),
               display
             };
-            fs10.writeSync(typesFd, JSON.stringify(descriptor));
+            fs11.writeSync(typesFd, JSON.stringify(descriptor));
             if (i < numTypes - 1) {
-              fs10.writeSync(typesFd, ",\n");
+              fs11.writeSync(typesFd, ",\n");
             }
           }
-          fs10.writeSync(typesFd, "]\n");
-          fs10.closeSync(typesFd);
+          fs11.writeSync(typesFd, "]\n");
+          fs11.closeSync(typesFd);
           mark("endDumpTypes");
           measure("Dump types", "beginDumpTypes", "endDumpTypes");
         }
@@ -12393,7 +12393,7 @@ ${lanes.join("\n")}
           if (!legendPath) {
             return;
           }
-          fs10.writeFileSync(legendPath, JSON.stringify(legend));
+          fs11.writeFileSync(legendPath, JSON.stringify(legend));
         }
         tracingEnabled2.dumpLegend = dumpLegend;
       })(tracingEnabled || (tracingEnabled = {}));
@@ -210713,9 +210713,9 @@ ${options.prefix}` : "\n" : options.prefix
             else (openFilesImpactedByConfigFile = /* @__PURE__ */ new Set()).add(info.path);
           }
           if (configFileExistenceInfo) return configFileExistenceInfo.exists;
-          const exists = this.host.fileExists(configFileName);
-          this.configFileExistenceInfoCache.set(canonicalConfigFilePath, { exists, openFilesImpactedByConfigFile });
-          return exists;
+          const exists2 = this.host.fileExists(configFileName);
+          this.configFileExistenceInfoCache.set(canonicalConfigFilePath, { exists: exists2, openFilesImpactedByConfigFile });
+          return exists2;
         }
         createConfigFileWatcherForParsedConfig(configFileName, canonicalConfigFilePath, forProject) {
           var _a, _b;
@@ -211227,9 +211227,9 @@ ${options.prefix}` : "\n" : options.prefix
           return configFileExistenceInfo;
         }
         /** @internal */
-        watchWildcards(configFileName, { exists, config }, forProject) {
+        watchWildcards(configFileName, { exists: exists2, config }, forProject) {
           config.projects.set(forProject.canonicalConfigFilePath, true);
-          if (exists) {
+          if (exists2) {
             if (config.watchedDirectories && !config.watchedDirectoriesStale) return;
             config.watchedDirectoriesStale = false;
             updateWatchingWildcardDirectories(
@@ -222575,7 +222575,7 @@ var require_dist = __commonJS({
       enumerable: true
     }) : target, mod));
     var path12 = __toESM2(__require("path"));
-    var fs10 = __toESM2(__require("fs"));
+    var fs11 = __toESM2(__require("fs"));
     function cleanPath(path$1) {
       let normalized = (0, path12.normalize)(path$1);
       if (normalized.length > 1 && normalized[normalized.length - 1] === path12.sep) normalized = normalized.substring(0, normalized.length - 1);
@@ -222872,7 +222872,7 @@ var require_dist = __commonJS({
           symlinks: /* @__PURE__ */ new Map(),
           visited: [""].slice(0, 0),
           controller: new Aborter(),
-          fs: options.fs || fs10
+          fs: options.fs || fs11
         };
         this.joinPath = build$7(this.root, options);
         this.pushDirectory = build$6(this.root, options);
@@ -223107,7 +223107,7 @@ var require_dist2 = __commonJS({
       value: mod,
       enumerable: true
     }) : target, mod));
-    var fs10 = __require("fs");
+    var fs11 = __require("fs");
     var path12 = __require("path");
     var url = __require("url");
     var fdir = require_dist();
@@ -223356,12 +223356,12 @@ var require_dist2 = __commonJS({
       opts.cwd = (opts.cwd instanceof URL ? (0, url.fileURLToPath)(opts.cwd) : (0, path12.resolve)(opts.cwd || process.cwd())).replace(BACKSLASHES, "/");
       opts.ignore = ensureStringArray(opts.ignore);
       opts.fs && (opts.fs = {
-        readdir: opts.fs.readdir || fs10.readdir,
-        readdirSync: opts.fs.readdirSync || fs10.readdirSync,
-        realpath: opts.fs.realpath || fs10.realpath,
-        realpathSync: opts.fs.realpathSync || fs10.realpathSync,
-        stat: opts.fs.stat || fs10.stat,
-        statSync: opts.fs.statSync || fs10.statSync
+        readdir: opts.fs.readdir || fs11.readdir,
+        readdirSync: opts.fs.readdirSync || fs11.readdirSync,
+        realpath: opts.fs.realpath || fs11.realpath,
+        realpathSync: opts.fs.realpathSync || fs11.realpathSync,
+        stat: opts.fs.stat || fs11.stat,
+        statSync: opts.fs.statSync || fs11.statSync
       });
       if (opts.debug) log("globbing with options:", opts);
       return opts;
@@ -225292,30 +225292,30 @@ ${nodeLocation}` : message;
           yield path13;
       }
     }
-    var fs10 = runtime.fs;
+    var fs11 = runtime.fs;
     var RealFileSystemHost = class {
       async delete(path13) {
         try {
-          await fs10.delete(path13);
+          await fs11.delete(path13);
         } catch (err) {
           throw this.#getFileNotFoundErrorIfNecessary(err, path13);
         }
       }
       deleteSync(path13) {
         try {
-          fs10.deleteSync(path13);
+          fs11.deleteSync(path13);
         } catch (err) {
           throw this.#getFileNotFoundErrorIfNecessary(err, path13);
         }
       }
       readDirSync(dirPath) {
         try {
-          const entries = fs10.readDirSync(dirPath);
+          const entries = fs11.readDirSync(dirPath);
           for (const entry of entries) {
             entry.name = FileUtils.pathJoin(dirPath, entry.name);
             if (entry.isSymlink) {
               try {
-                const info = fs10.statSync(entry.name);
+                const info = fs11.statSync(entry.name);
                 if (info != null) {
                   entry.isDirectory = info.isDirectory();
                   entry.isFile = info.isFile();
@@ -225331,84 +225331,84 @@ ${nodeLocation}` : message;
       }
       async readFile(filePath, encoding = "utf-8") {
         try {
-          return await fs10.readFile(filePath, encoding);
+          return await fs11.readFile(filePath, encoding);
         } catch (err) {
           throw this.#getFileNotFoundErrorIfNecessary(err, filePath);
         }
       }
       readFileSync(filePath, encoding = "utf-8") {
         try {
-          return fs10.readFileSync(filePath, encoding);
+          return fs11.readFileSync(filePath, encoding);
         } catch (err) {
           throw this.#getFileNotFoundErrorIfNecessary(err, filePath);
         }
       }
       async writeFile(filePath, fileText) {
-        return fs10.writeFile(filePath, fileText);
+        return fs11.writeFile(filePath, fileText);
       }
       writeFileSync(filePath, fileText) {
-        fs10.writeFileSync(filePath, fileText);
+        fs11.writeFileSync(filePath, fileText);
       }
       mkdir(dirPath) {
-        return fs10.mkdir(dirPath);
+        return fs11.mkdir(dirPath);
       }
       mkdirSync(dirPath) {
-        fs10.mkdirSync(dirPath);
+        fs11.mkdirSync(dirPath);
       }
       move(srcPath, destPath) {
-        return fs10.move(srcPath, destPath);
+        return fs11.move(srcPath, destPath);
       }
       moveSync(srcPath, destPath) {
-        fs10.moveSync(srcPath, destPath);
+        fs11.moveSync(srcPath, destPath);
       }
       copy(srcPath, destPath) {
-        return fs10.copy(srcPath, destPath);
+        return fs11.copy(srcPath, destPath);
       }
       copySync(srcPath, destPath) {
-        fs10.copySync(srcPath, destPath);
+        fs11.copySync(srcPath, destPath);
       }
       async fileExists(filePath) {
         try {
-          return (await fs10.stat(filePath))?.isFile() ?? false;
+          return (await fs11.stat(filePath))?.isFile() ?? false;
         } catch {
           return false;
         }
       }
       fileExistsSync(filePath) {
         try {
-          return fs10.statSync(filePath)?.isFile() ?? false;
+          return fs11.statSync(filePath)?.isFile() ?? false;
         } catch {
           return false;
         }
       }
       async directoryExists(dirPath) {
         try {
-          return (await fs10.stat(dirPath))?.isDirectory() ?? false;
+          return (await fs11.stat(dirPath))?.isDirectory() ?? false;
         } catch {
           return false;
         }
       }
       directoryExistsSync(dirPath) {
         try {
-          return fs10.statSync(dirPath)?.isDirectory() ?? false;
+          return fs11.statSync(dirPath)?.isDirectory() ?? false;
         } catch {
           return false;
         }
       }
       realpathSync(path13) {
-        return fs10.realpathSync(path13);
+        return fs11.realpathSync(path13);
       }
       getCurrentDirectory() {
-        return FileUtils.standardizeSlashes(fs10.getCurrentDirectory());
+        return FileUtils.standardizeSlashes(fs11.getCurrentDirectory());
       }
       glob(patterns) {
-        return fs10.glob(backSlashesToForward(patterns));
+        return fs11.glob(backSlashesToForward(patterns));
       }
       globSync(patterns) {
-        return fs10.globSync(backSlashesToForward(patterns));
+        return fs11.globSync(backSlashesToForward(patterns));
       }
       isCaseSensitive() {
-        return fs10.isCaseSensitive();
+        return fs11.isCaseSensitive();
       }
       #getDirectoryNotFoundErrorIfNecessary(err, path13) {
         return FileUtils.isNotExistsError(err) ? new exports.errors.DirectoryNotFoundError(FileUtils.getStandardizedAbsolutePath(this, path13)) : err;
@@ -249348,6 +249348,7 @@ var init_workspace_store = __esm({
 });
 
 // packages/cli/bin/api-forge.mjs
+import fs10 from "node:fs/promises";
 import path11 from "node:path";
 import { execFile as execFile3 } from "node:child_process";
 import { spawn as spawn2 } from "node:child_process";
@@ -250200,11 +250201,16 @@ async function projectGitFreshness(sourceContext = {}) {
 init_timeline();
 var ROOT = path7.resolve(path7.dirname(fileURLToPath(import.meta.url)), "..");
 var UI_DIR = path7.join(ROOT, "ui");
-var PORT = Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
 var HOST = "127.0.0.1";
-var dashboardUrl = `http://${HOST}:${PORT}`;
+function basePort() {
+  return Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
+}
+function maxPort() {
+  return Number(process.env.AIPI_MAX_PORT || basePort() + 8);
+}
+var dashboardUrl = `http://${HOST}:${basePort()}`;
 var sessionToken = process.env.AIPI_TOKEN || `sec_${crypto5.randomBytes(18).toString("base64url")}`;
-var allowedOrigin = process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev";
+var allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim()).filter(Boolean));
 var mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8" };
 function json(response, status, payload) {
   response.writeHead(status, { "content-type": mime[".json"], "cache-control": "no-store" });
@@ -250693,10 +250699,39 @@ async function scanProjectSource(projectId, requestedRoots = []) {
   });
   return scan;
 }
-async function startDashboard({ executeRequest: executeRequest2 }) {
+function corsOrigin(origin) {
+  if (origin?.startsWith("http://127.0.0.1:") || origin?.startsWith("http://localhost:")) return origin;
+  return allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "https://aipi.website";
+}
+async function listenOnAvailablePort(server2) {
+  const start = basePort();
+  const end = maxPort();
+  for (let port = start; port <= end; port += 1) {
+    const listening = await new Promise((resolve, reject) => {
+      const onError = (error) => {
+        server2.off("listening", onListening);
+        if (error.code === "EADDRINUSE") resolve(false);
+        else reject(error);
+      };
+      const onListening = () => {
+        server2.off("error", onError);
+        resolve(true);
+      };
+      server2.once("error", onError);
+      server2.once("listening", onListening);
+      server2.listen(port, HOST);
+    });
+    if (listening) {
+      dashboardUrl = `http://${HOST}:${server2.address().port}`;
+      return;
+    }
+  }
+  throw new Error(`No available AIPI loopback port in ${start}-${end}`);
+}
+async function startDashboard({ executeRequest: executeRequest2, callTool: callTool2 } = {}) {
   const server2 = http2.createServer(async (request, response) => {
     const origin = request.headers.origin;
-    response.setHeader("access-control-allow-origin", origin === allowedOrigin || origin?.startsWith("http://127.0.0.1:") ? origin : allowedOrigin);
+    response.setHeader("access-control-allow-origin", corsOrigin(origin));
     response.setHeader("access-control-allow-headers", "authorization, content-type");
     response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
     response.setHeader("access-control-allow-private-network", "true");
@@ -250708,8 +250743,13 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
     }
     const url = new URL(request.url, dashboardUrl);
     try {
-      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server2.address()?.port ?? PORT, token: sessionToken, companion: "local", protocol: "http-loopback" });
+      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server2.address()?.port ?? basePort(), token: sessionToken, companion: "local", protocol: "http-loopback" });
       if (url.pathname.startsWith("/api/") && url.pathname !== "/api/connection" && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
+      if (request.method === "POST" && url.pathname === "/api/tools/call") {
+        if (!callTool2) return json(response, 503, { error: "AIPI tool relay is unavailable" });
+        const payload = await bodyJson(request);
+        return json(response, 200, await callTool2(payload.name, payload.arguments ?? {}));
+      }
       if (request.method === "GET" && url.pathname === "/api/state") return json(response, 200, publicState(await loadState()));
       if (request.method === "GET" && url.pathname === "/api/timeline") {
         const state = await loadState();
@@ -250785,7 +250825,7 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
         const log = state.history.find((item) => item.id === payload.logId);
         return log ? json(response, 200, diagnosisFor(log.result)) : json(response, 404, { error: "Log not found" });
       }
-      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server2.address()?.port ?? PORT });
+      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server2.address()?.port ?? basePort() });
       if (request.method === "GET") {
         const relative = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
         const target = path7.resolve(UI_DIR, relative);
@@ -250804,20 +250844,8 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
       json(response, 500, { error: error.message });
     }
   });
-  server2.on("error", (error) => {
-    if (error.code !== "EADDRINUSE") process.stderr.write(`API Forge dashboard error: ${error.message}
-`);
-  });
-  await new Promise((resolve) => {
-    server2.listen(PORT, HOST, () => {
-      dashboardUrl = `http://${HOST}:${server2.address().port}`;
-      resolve();
-    });
-    server2.once("error", (error) => {
-      if (error.code === "EADDRINUSE") resolve();
-    });
-  });
-  return { server: server2, url: dashboardUrl, token: sessionToken, port: server2.address()?.port ?? PORT };
+  await listenOnAvailablePort(server2);
+  return { server: server2, url: dashboardUrl, token: sessionToken, port: server2.address()?.port ?? basePort() };
 }
 
 // scripts/api-forge-server.mjs
@@ -252319,8 +252347,12 @@ async function handle(message) {
   }
 }
 var dashboardRuntime = { url: `http://127.0.0.1:${process.env.API_FORGE_PORT || 43127}` };
+function setAipiRuntime(runtime) {
+  dashboardRuntime = runtime;
+  return dashboardRuntime;
+}
 async function startAipiRuntime() {
-  dashboardRuntime = await startDashboard({ executeRequest });
+  dashboardRuntime = await startDashboard({ executeRequest, callTool });
   return dashboardRuntime;
 }
 if (process.argv[1] && path10.basename(process.argv[1]) === "api-forge-server.mjs" && fileURLToPath2(import.meta.url) === process.argv[1]) {
@@ -252343,7 +252375,9 @@ function usage() {
   return `AIPI CLI
 
 Usage:
+  aipi init [--root .]
   aipi mcp
+  aipi daemon [--port 49152]
   aipi observe --target <url> [--port 43128] [--root .]
   aipi open [--app https://app.aipi.dev/dashboard/]
   aipi dev [--app http://localhost:8788/dashboard/]
@@ -252362,17 +252396,187 @@ function option(args, name, fallback) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : fallback;
 }
+var DEFAULT_PORT = 49152;
+var MAX_PORT = 49160;
+var cliPath = fileURLToPath3(import.meta.url);
+async function exists(target) {
+  try {
+    await fs10.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function findProjectRoot(start = ".") {
+  let current = path11.resolve(start);
+  while (true) {
+    if (await exists(path11.join(current, ".git")) || await exists(path11.join(current, "package.json"))) return current;
+    const parent = path11.dirname(current);
+    if (parent === current) return path11.resolve(start);
+    current = parent;
+  }
+}
+async function detectSourceRoots(root) {
+  const candidates = [["frontend", "apps/web"], ["frontend", "web"], ["frontend", "frontend"], ["backend", "apps/api"], ["backend", "api"], ["backend", "backend"], ["database", "supabase"], ["database", "prisma"], ["tests", "tests"]];
+  const roots = [];
+  for (const [kind, relative] of candidates) {
+    try {
+      if ((await fs10.stat(path11.join(root, relative))).isDirectory()) roots.push({ kind, path: relative });
+    } catch {
+    }
+  }
+  return roots.length ? roots : [{ kind: "workspace", path: "." }];
+}
+async function configureMcpFile(filePath, root, vscode = false) {
+  await fs10.mkdir(path11.dirname(filePath), { recursive: true });
+  let config = {};
+  try {
+    config = JSON.parse(await fs10.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const key = vscode ? "servers" : "mcpServers";
+  config[key] ??= {};
+  config[key].aipi = { ...config[key].aipi ?? {}, command: "npx", args: ["-y", "@vmise/aipi-companion", "mcp", "--root", root], ...vscode ? { type: "stdio" } : {} };
+  await fs10.writeFile(filePath, `${JSON.stringify(config, null, 2)}
+`);
+}
+async function configureCodex(root) {
+  const file = path11.join(root, ".codex", "config.toml");
+  let content = "";
+  try {
+    content = await fs10.readFile(file, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (/^\s*\[mcp_servers\.(?:aipi|"aipi"|'aipi')(?:\.|\])/m.test(content)) return;
+  await fs10.mkdir(path11.dirname(file), { recursive: true });
+  await fs10.writeFile(file, `${content}
+[mcp_servers.aipi]
+command = "npx"
+args = ${JSON.stringify(["-y", "@vmise/aipi-companion", "mcp", "--root", root])}
+startup_timeout_sec = 60
+`);
+}
+async function connectProject(daemon, root) {
+  const headers = { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" };
+  const state = await fetchJson(`${daemon.url}/api/state`, { headers, timeout: 1e4 });
+  if (!state) throw new Error("Could not load companion state. Run the command again to reconnect.");
+  let project = state.projects.find((entry) => entry.sourceContext?.roots?.some((source) => path11.resolve(source.path) === root));
+  if (!project) {
+    project = await fetchJson(`${daemon.url}/api/projects`, { method: "POST", headers, timeout: 12e4, body: JSON.stringify({ name: path11.basename(root), workspacePath: root }) });
+    if (!project?.id) throw new Error("Project registration failed. Companion is running; rerun setup to retry.");
+  }
+  const selected = await fetchJson(`${daemon.url}/api/tools/call`, { method: "POST", headers, timeout: 1e4, body: JSON.stringify({ name: "select_project", arguments: { project_id: project.id } }) });
+  if (!selected || selected.isError) throw new Error("Could not select the project in AIPI.");
+  return project;
+}
+async function fetchJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeout ?? 450);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+async function probeDaemon() {
+  const ports = /* @__PURE__ */ new Set([Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || DEFAULT_PORT)]);
+  for (let port = DEFAULT_PORT; port <= MAX_PORT; port += 1) ports.add(port);
+  for (const port of ports) {
+    const connection = await fetchJson(`http://127.0.0.1:${port}/api/connection`);
+    if (connection?.connected && connection?.token) return { ...connection, url: `http://127.0.0.1:${connection.port || port}` };
+  }
+  return null;
+}
+async function ensureDaemon({ quiet = false } = {}) {
+  const running = await probeDaemon();
+  if (running) return running;
+  const child = spawn2(process.execPath, [cliPath, "daemon"], {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, AIPI_PORT: String(process.env.AIPI_PORT || DEFAULT_PORT), AIPI_MAX_PORT: String(process.env.AIPI_MAX_PORT || MAX_PORT) }
+  });
+  child.unref();
+  const deadline = Date.now() + 15e3;
+  while (Date.now() < deadline) {
+    const connection = await probeDaemon();
+    if (connection) return connection;
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  if (!quiet) process.stderr.write("AIPI daemon did not become ready on loopback. Try `aipi dev` for details.\n");
+  return null;
+}
+function appLaunchUrl(app, daemon, projectName) {
+  const base = new URL(app);
+  if (!["https:", "http:"].includes(base.protocol)) throw new Error("Dashboard URL must use HTTP or HTTPS");
+  const params = new URLSearchParams({ port: String(daemon.port), token: daemon.token });
+  if (projectName) params.set("project", projectName);
+  base.hash = params.toString();
+  return base.href;
+}
 async function main() {
-  const [command, ...args] = process.argv.slice(2);
-  if (!command || ["-h", "--help", "help"].includes(command)) {
+  let [command = "init", ...args] = process.argv.slice(2);
+  if (["-h", "--help", "help"].includes(command)) {
     process.stdout.write(usage());
     return;
   }
+  if (command === "init") {
+    const root = await findProjectRoot(option(args, "--root", "."));
+    const roots = await detectSourceRoots(root);
+    process.chdir(root);
+    let previous = {};
+    try {
+      previous = JSON.parse(await fs10.readFile(path11.join(root, ".aipirc.json"), "utf8"));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const config = { version: 1, name: path11.basename(root), root, roots, ...previous };
+    await fs10.writeFile(path11.join(root, ".aipirc.json"), `${JSON.stringify(config, null, 2)}
+`);
+    const configured = [];
+    await configureMcpFile(path11.join(root, ".cursor", "mcp.json"), root);
+    configured.push("Cursor");
+    await configureMcpFile(path11.join(root, ".vscode", "mcp.json"), root, true);
+    configured.push("VS Code");
+    await configureCodex(root);
+    configured.push("Codex");
+    process.stdout.write(`Configured AIPI for ${configured.join(", ")}.
+Project root: ${root}
+Source roots: ${roots.map((entry) => `${entry.kind}:${entry.path}`).join(", ")}
+Restart your IDE window to activate MCP.
+`);
+    if (args.includes("--config-only")) return;
+    command = "open";
+  }
+  if (command === "daemon") {
+    const port = option(args, "--port");
+    if (port) process.env.AIPI_PORT = port;
+    const dashboard = await startDashboard({ executeRequest, callTool });
+    setAipiRuntime(dashboard);
+    process.stdout.write(`AIPI daemon listening on ${dashboard.url}
+`);
+    const close = () => dashboard.server.close(() => process.exit(0));
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+    return;
+  }
   if (command === "mcp") {
+    process.chdir(await findProjectRoot(option(args, "--root", ".")));
+    const daemon = await ensureDaemon({ quiet: true });
+    if (daemon) await connectProject(daemon, process.cwd());
     const currentDirectory = path11.dirname(fileURLToPath3(import.meta.url));
     const scriptsDirectory = path11.basename(currentDirectory) === "scripts" ? currentDirectory : path11.resolve(currentDirectory, "../../../scripts");
     const serverPath = path11.join(scriptsDirectory, "aipi-mcp-bundle.mjs");
-    const child = spawn2(process.execPath, [serverPath], { stdio: "inherit", env: process.env });
+    const child = spawn2(process.execPath, [serverPath], {
+      stdio: "inherit",
+      env: daemon ? { ...process.env, AIPI_DAEMON_URL: daemon.url, AIPI_DAEMON_TOKEN: daemon.token, AIPI_PORT: String(daemon.port) } : process.env
+    });
     const signal = (name) => {
       if (!child.killed) child.kill(name);
     };
@@ -252445,20 +252649,26 @@ async function main() {
     return;
   }
   if (command === "open" || command === "dev") {
-    const dashboard = await startDashboard({ executeRequest });
-    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://app.aipi.dev/dashboard/");
-    const url = `${app}?port=${dashboard.port}&token=${encodeURIComponent(dashboard.token)}`;
-    process.stdout.write(`AIPI Local Companion active on ${dashboard.url}
+    const root = await findProjectRoot(option(args, "--root", "."));
+    process.chdir(root);
+    process.stdout.write("Connecting your project to AIPI\u2026\n");
+    const daemon = await ensureDaemon();
+    if (!daemon) throw new Error("AIPI daemon is not available");
+    const project = await connectProject(daemon, root);
+    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://aipi.website/dashboard/");
+    const url = appLaunchUrl(app, daemon, project.id);
+    process.stdout.write(`AIPI Local Companion active on ${daemon.url}
 Opening ${url}
 `);
-    if (command === "open") {
+    if (command === "open" && !args.includes("--no-open")) {
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-      const openerArgs = process.platform === "win32" ? ["/c", "start", url] : [url];
-      await execFileAsync3(opener, openerArgs);
+      const openerArgs = process.platform === "win32" ? ["/c", "start", "", url.replace(/&/g, "^&")] : [url];
+      try {
+        await execFileAsync3(opener, openerArgs);
+      } catch {
+        process.stderr.write("Browser could not open automatically. Open the dashboard link above on this computer.\n");
+      }
     }
-    const close = () => dashboard.server.close(() => process.exit(0));
-    process.once("SIGINT", close);
-    process.once("SIGTERM", close);
     return;
   }
   if (command === "trace") {

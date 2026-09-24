@@ -4,16 +4,18 @@ import path from "node:path";
 import vm from "node:vm";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { addHistory, defaultProject, defaultRequest, loadState, mutateState, newId, publicState, saveState, variablesFor } from "./workspace-store.mjs";
+import { addHistory, defaultProject, defaultRequest, loadState, mutateState, newId, publicState, variablesFor } from "./workspace-store.mjs";
 import { captureGitEvidence } from "../packages/core/git-evidence.mjs";
+import { appendTimelineEvent, timelineForProject, workspaceChangeEvent } from "../packages/core/timeline.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const UI_DIR = path.join(ROOT, "ui");
-const PORT = Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
 const HOST = "127.0.0.1";
-let dashboardUrl = `http://${HOST}:${PORT}`;
+function basePort() { return Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152); }
+function maxPort() { return Number(process.env.AIPI_MAX_PORT || basePort() + 8); }
+let dashboardUrl = `http://${HOST}:${basePort()}`;
 const sessionToken = process.env.AIPI_TOKEN || `sec_${crypto.randomBytes(18).toString("base64url")}`;
-const allowedOrigin = process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev";
+const allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim()).filter(Boolean));
 
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8" };
 
@@ -430,20 +432,60 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
   await mutateState((state) => {
     const project = state.projects.find((entry) => entry.id === projectId);
     if (!project) throw new Error("Project not found");
+    const previousEndpoints = new Set((project.sourceContext?.endpoints ?? []).map((entry) => `${entry.method} ${entry.path}`));
+    const discovered = endpoints.filter((entry) => !previousEndpoints.has(`${entry.method} ${entry.path}`));
     project.sourceContext = scan;
     project.updatedAt = new Date().toISOString();
     project.summary = {
       ...(project.summary ?? {}), libraries: [...frameworks],
       iterations: [...(project.summary?.iterations ?? []), { at: scan.lastScannedAt, label: `Scanned ${filesScanned} source files` }].slice(-20)
     };
+    appendTimelineEvent(state, {
+      projectId: project.id, createdAt: scan.lastScannedAt, type: "scan", severity: findings.some((entry) => entry.severity === "high") ? "warning" : "success", actor: "aipi",
+      title: "Source intelligence refreshed",
+      summary: `Scanned ${filesScanned} files, mapped ${endpoints.length} backend APIs to ${frontendCalls.length} frontend calls, and found ${findings.length} integration issue${findings.length === 1 ? "" : "s"}.`,
+      tags: [...frameworks].slice(0, 6), source: { kind: "source-scan", roots: roots.map((entry) => entry.path) },
+      evidence: { filesScanned, endpoints: endpoints.length, frontendCalls: frontendCalls.length, schemas: schemas.length, integrations: integrations.length, findings: findings.length, newEndpoints: discovered.map((entry) => `${entry.method} ${entry.path}`).slice(0, 25), git: git.map((entry) => ({ root: entry.requestedRoot, commit: entry.commit, branch: entry.branch, dirty: entry.dirty })) }
+    });
   });
   return scan;
 }
 
-export async function startDashboard({ executeRequest }) {
+function corsOrigin(origin) {
+  if (origin?.startsWith("http://127.0.0.1:") || origin?.startsWith("http://localhost:")) return origin;
+  return allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "https://aipi.website";
+}
+
+async function listenOnAvailablePort(server) {
+  const start = basePort();
+  const end = maxPort();
+  for (let port = start; port <= end; port += 1) {
+    const listening = await new Promise((resolve, reject) => {
+      const onError = (error) => {
+        server.off("listening", onListening);
+        if (error.code === "EADDRINUSE") resolve(false);
+        else reject(error);
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        resolve(true);
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, HOST);
+    });
+    if (listening) {
+      dashboardUrl = `http://${HOST}:${server.address().port}`;
+      return;
+    }
+  }
+  throw new Error(`No available AIPI loopback port in ${start}-${end}`);
+}
+
+export async function startDashboard({ executeRequest, callTool } = {}) {
   const server = http.createServer(async (request, response) => {
     const origin = request.headers.origin;
-    response.setHeader("access-control-allow-origin", origin === allowedOrigin || origin?.startsWith("http://127.0.0.1:") ? origin : allowedOrigin);
+    response.setHeader("access-control-allow-origin", corsOrigin(origin));
     response.setHeader("access-control-allow-headers", "authorization, content-type");
     response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
     response.setHeader("access-control-allow-private-network", "true");
@@ -455,11 +497,37 @@ export async function startDashboard({ executeRequest }) {
     }
     const url = new URL(request.url, dashboardUrl);
     try {
-      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? PORT, token: sessionToken, companion: "local", protocol: "http-loopback" });
+      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? basePort(), token: sessionToken, companion: "local", protocol: "http-loopback" });
       if (url.pathname.startsWith("/api/") && url.pathname !== "/api/connection" && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
+      if (request.method === "POST" && url.pathname === "/api/tools/call") {
+        if (!callTool) return json(response, 503, { error: "AIPI tool relay is unavailable" });
+        const payload = await bodyJson(request);
+        return json(response, 200, await callTool(payload.name, payload.arguments ?? {}));
+      }
       if (request.method === "GET" && url.pathname === "/api/state") return json(response, 200, publicState(await loadState()));
+      if (request.method === "GET" && url.pathname === "/api/timeline") {
+        const state = await loadState();
+        const projectId = url.searchParams.get("projectId") || state.activeProjectId;
+        const types = url.searchParams.getAll("type");
+        const events = timelineForProject(state, projectId, { types, before: url.searchParams.get("before"), limit: url.searchParams.get("limit") || 100 });
+        return json(response, 200, { events, nextBefore: events.at(-1)?.createdAt ?? null });
+      }
       if (request.method === "PUT" && url.pathname === "/api/state") {
-        const state = await bodyJson(request); await saveState(state); return json(response, 200, { ok: true });
+        const incoming = await bodyJson(request);
+        let recordedEvent = null;
+        await mutateState((state) => {
+          const previous = structuredClone(state);
+          const timeline = state.timeline ?? [];
+          state.version = Math.max(Number(incoming.version) || 1, 2);
+          state.activeProjectId = incoming.activeProjectId;
+          state.projects = incoming.projects ?? state.projects;
+          state.history = incoming.history ?? state.history;
+          state.activity = incoming.activity ?? state.activity;
+          state.timeline = timeline;
+          const event = workspaceChangeEvent(previous, state);
+          if (event) recordedEvent = appendTimelineEvent(state, event);
+        });
+        return json(response, 200, { ok: true, event: recordedEvent });
       }
       if (request.method === "POST" && url.pathname === "/api/projects") {
         const payload = await bodyJson(request); const project = defaultProject(payload.name || "New project");
@@ -472,14 +540,20 @@ export async function startDashboard({ executeRequest }) {
         project.summary.goal = payload.goal || project.summary.goal;
         project.environments[0].name = payload.environmentName || "Development";
         project.environments[0].variables[0].value = payload.baseUrl || "http://localhost:3000";
-        await mutateState((state) => { state.projects.push(project); state.activeProjectId = project.id; });
+        await mutateState((state) => {
+          state.projects.push(project); state.activeProjectId = project.id;
+          appendTimelineEvent(state, { projectId: project.id, type: "project", severity: "success", actor: "developer", title: "Project created", summary: `${project.name} was created with the ${project.environments[0].name} environment.`, tags: [project.environments[0].name], source: { kind: "dashboard" }, evidence: { environmentCount: 1, requestCount: project.requests.length, sourceConnected: Boolean(workspacePath) } });
+        });
         if (workspacePath) await scanProjectSource(project.id, [{ kind: "workspace", path: workspacePath }]);
         const current = await loadState();
         return json(response, 201, current.projects.find((entry) => entry.id === project.id));
       }
       if (request.method === "POST" && url.pathname === "/api/import") {
         const project = await importDocument(await bodyJson(request));
-        await mutateState((state) => { state.projects.push(project); }); return json(response, 201, project);
+        await mutateState((state) => {
+          state.projects.push(project);
+          appendTimelineEvent(state, { projectId: project.id, type: "project", severity: "success", actor: "developer", title: "API definition imported", summary: `${project.requests.length} reusable API request${project.requests.length === 1 ? "" : "s"} imported into ${project.name}.`, tags: ["OpenAPI"], source: { kind: "import" }, evidence: { requestCount: project.requests.length } });
+        }); return json(response, 201, project);
       }
       if (request.method === "POST" && url.pathname === "/api/scan") {
         const payload = await bodyJson(request);
@@ -500,7 +574,7 @@ export async function startDashboard({ executeRequest }) {
         const log = state.history.find((item) => item.id === payload.logId);
         return log ? json(response, 200, diagnosisFor(log.result)) : json(response, 404, { error: "Log not found" });
       }
-      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server.address()?.port ?? PORT });
+      if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server.address()?.port ?? basePort() });
       if (request.method === "GET") {
         const relative = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
         const target = path.resolve(UI_DIR, relative);
@@ -514,12 +588,8 @@ export async function startDashboard({ executeRequest }) {
       json(response, 404, { error: "Not found" });
     } catch (error) { json(response, 500, { error: error.message }); }
   });
-  server.on("error", (error) => { if (error.code !== "EADDRINUSE") process.stderr.write(`API Forge dashboard error: ${error.message}\n`); });
-  await new Promise((resolve) => {
-    server.listen(PORT, HOST, () => { dashboardUrl = `http://${HOST}:${server.address().port}`; resolve(); });
-    server.once("error", (error) => { if (error.code === "EADDRINUSE") resolve(); });
-  });
-  return { server, url: dashboardUrl, token: sessionToken, port: server.address()?.port ?? PORT };
+  await listenOnAvailablePort(server);
+  return { server, url: dashboardUrl, token: sessionToken, port: server.address()?.port ?? basePort() };
 }
 
 export { dashboardUrl, diagnosisFor, executeSaved, importOpenApi };

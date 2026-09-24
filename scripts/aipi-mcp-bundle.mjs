@@ -283680,11 +283680,16 @@ async function projectGitFreshness(sourceContext = {}) {
 // scripts/dashboard-server.mjs
 var ROOT = path4.resolve(path4.dirname(fileURLToPath(import.meta.url)), "..");
 var UI_DIR = path4.join(ROOT, "ui");
-var PORT = Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
 var HOST = "127.0.0.1";
-var dashboardUrl = `http://${HOST}:${PORT}`;
+function basePort() {
+  return Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || 49152);
+}
+function maxPort() {
+  return Number(process.env.AIPI_MAX_PORT || basePort() + 8);
+}
+var dashboardUrl = `http://${HOST}:${basePort()}`;
 var sessionToken = process.env.AIPI_TOKEN || `sec_${crypto5.randomBytes(18).toString("base64url")}`;
-var allowedOrigin = process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev";
+var allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim()).filter(Boolean));
 var mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8" };
 function json2(response, status, payload) {
   response.writeHead(status, { "content-type": mime[".json"], "cache-control": "no-store" });
@@ -284173,10 +284178,39 @@ async function scanProjectSource(projectId, requestedRoots = []) {
   });
   return scan;
 }
-async function startDashboard({ executeRequest: executeRequest2 }) {
+function corsOrigin(origin) {
+  if (origin?.startsWith("http://127.0.0.1:") || origin?.startsWith("http://localhost:")) return origin;
+  return allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "https://aipi.website";
+}
+async function listenOnAvailablePort(server2) {
+  const start = basePort();
+  const end = maxPort();
+  for (let port = start; port <= end; port += 1) {
+    const listening = await new Promise((resolve, reject) => {
+      const onError = (error62) => {
+        server2.off("listening", onListening);
+        if (error62.code === "EADDRINUSE") resolve(false);
+        else reject(error62);
+      };
+      const onListening = () => {
+        server2.off("error", onError);
+        resolve(true);
+      };
+      server2.once("error", onError);
+      server2.once("listening", onListening);
+      server2.listen(port, HOST);
+    });
+    if (listening) {
+      dashboardUrl = `http://${HOST}:${server2.address().port}`;
+      return;
+    }
+  }
+  throw new Error(`No available AIPI loopback port in ${start}-${end}`);
+}
+async function startDashboard({ executeRequest: executeRequest2, callTool: callTool2 } = {}) {
   const server2 = http.createServer(async (request, response) => {
     const origin = request.headers.origin;
-    response.setHeader("access-control-allow-origin", origin === allowedOrigin || origin?.startsWith("http://127.0.0.1:") ? origin : allowedOrigin);
+    response.setHeader("access-control-allow-origin", corsOrigin(origin));
     response.setHeader("access-control-allow-headers", "authorization, content-type");
     response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
     response.setHeader("access-control-allow-private-network", "true");
@@ -284188,8 +284222,13 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
     }
     const url2 = new URL(request.url, dashboardUrl);
     try {
-      if (request.method === "GET" && url2.pathname === "/api/connection") return json2(response, 200, { connected: true, host: HOST, port: server2.address()?.port ?? PORT, token: sessionToken, companion: "local", protocol: "http-loopback" });
+      if (request.method === "GET" && url2.pathname === "/api/connection") return json2(response, 200, { connected: true, host: HOST, port: server2.address()?.port ?? basePort(), token: sessionToken, companion: "local", protocol: "http-loopback" });
       if (url2.pathname.startsWith("/api/") && url2.pathname !== "/api/connection" && request.headers.authorization !== `Bearer ${sessionToken}`) return json2(response, 401, { error: "AIPI local session token is required" });
+      if (request.method === "POST" && url2.pathname === "/api/tools/call") {
+        if (!callTool2) return json2(response, 503, { error: "AIPI tool relay is unavailable" });
+        const payload = await bodyJson(request);
+        return json2(response, 200, await callTool2(payload.name, payload.arguments ?? {}));
+      }
       if (request.method === "GET" && url2.pathname === "/api/state") return json2(response, 200, publicState(await loadState()));
       if (request.method === "GET" && url2.pathname === "/api/timeline") {
         const state = await loadState();
@@ -284265,7 +284304,7 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
         const log = state.history.find((item) => item.id === payload.logId);
         return log ? json2(response, 200, diagnosisFor(log.result)) : json2(response, 404, { error: "Log not found" });
       }
-      if (request.method === "GET" && url2.pathname === "/health") return json2(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server2.address()?.port ?? PORT });
+      if (request.method === "GET" && url2.pathname === "/health") return json2(response, 200, { ok: true, url: dashboardUrl, companion: "local", port: server2.address()?.port ?? basePort() });
       if (request.method === "GET") {
         const relative = url2.pathname === "/" ? "index.html" : url2.pathname.slice(1);
         const target = path4.resolve(UI_DIR, relative);
@@ -284284,20 +284323,8 @@ async function startDashboard({ executeRequest: executeRequest2 }) {
       json2(response, 500, { error: error62.message });
     }
   });
-  server2.on("error", (error62) => {
-    if (error62.code !== "EADDRINUSE") process.stderr.write(`API Forge dashboard error: ${error62.message}
-`);
-  });
-  await new Promise((resolve) => {
-    server2.listen(PORT, HOST, () => {
-      dashboardUrl = `http://${HOST}:${server2.address().port}`;
-      resolve();
-    });
-    server2.once("error", (error62) => {
-      if (error62.code === "EADDRINUSE") resolve();
-    });
-  });
-  return { server: server2, url: dashboardUrl, token: sessionToken, port: server2.address()?.port ?? PORT };
+  await listenOnAvailablePort(server2);
+  return { server: server2, url: dashboardUrl, token: sessionToken, port: server2.address()?.port ?? basePort() };
 }
 
 // packages/core/index.mjs
@@ -285172,6 +285199,7 @@ function formatHandoff({ handoff: handoff2, project, log, context = {}, diagnosi
     "- Do not make state-changing requests without explicit authorization.",
     "",
     "### Suggested MCP actions",
+    "- `analyze_and_repair_contract` (preferred bounded workflow)",
     "- `get_endpoint_context`",
     "- `diff_contract`",
     "- `check_blast_radius`",
@@ -285353,6 +285381,13 @@ var tools = [
     description: "Append a concise, redacted agent decision or implementation change to the local AIPI project timeline so future analysis can use it as evidence.",
     inputSchema: { type: "object", required: ["project_id", "type", "title", "summary"], properties: { project_id: { type: "string" }, type: { type: "string", enum: ["agent", "change", "contract", "decision", "security", "ci"] }, title: { type: "string", maxLength: 240 }, summary: { type: "string", maxLength: 2e3 }, severity: { type: "string", enum: ["success", "info", "warning", "danger"], default: "info" }, actor: { type: "string", maxLength: 80, default: "agent" }, tags: { type: "array", maxItems: 12, items: { type: "string", maxLength: 60 } }, files: { type: "array", maxItems: 50, items: { type: "string" } }, commit: { type: "string" }, evidence: { type: "object", additionalProperties: true } }, additionalProperties: false },
     annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  {
+    name: "analyze_and_repair_contract",
+    title: "Analyze and verify one API contract",
+    description: "Return a small project summary, identify one relevant endpoint, provide bounded redacted evidence, and prepare or verify a correction for only that contract. The AI editor remains responsible for source changes.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" }, request_id: { type: "string", description: "Saved request to analyze. If omitted, the first saved request with a recent run is selected." }, route: { type: "string", description: "Optional route selector such as /api/checkout." }, method: { type: "string", enum: METHODS }, verify_after_changes: { type: "boolean", default: false }, allow_state_change: { type: "boolean", default: false } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
   },
   {
     name: "get_endpoint_context",
@@ -285862,6 +285897,30 @@ function contextForLog(project, log) {
   const context = endpoint ? endpointContext(project, endpoint.id) : null;
   return context ? { endpoint: context.endpoint, consumer: context.consumers[0] ?? null, schemas: context.schemas, integrations: context.integrations } : {};
 }
+function boundedContractContext(context = {}) {
+  return {
+    endpoint: context.endpoint ? { method: context.endpoint.method, path: context.endpoint.path, source: context.endpoint.source, line: context.endpoint.line, framework: context.endpoint.framework, confidence: context.endpoint.confidence } : null,
+    consumer: context.consumer ? { source: context.consumer.source, line: context.consumer.line, method: context.consumer.method, route: context.consumer.route, confidence: context.consumer.confidence } : null,
+    schemas: (context.schemas ?? []).slice(0, 5).map((schema) => ({ name: schema.name, source: schema.source, line: schema.line, columns: (schema.columns ?? []).slice(0, 20).map((column) => ({ name: column.name, type: column.type, required: column.required, primaryKey: column.primaryKey })) })),
+    integrations: (context.integrations ?? []).slice(0, 10).map((integration) => ({ status: integration.status, confidence: integration.confidence, reason: integration.reason }))
+  };
+}
+function boundedRunEvidence(log) {
+  const result = log?.result ?? {};
+  return {
+    runId: log?.id ?? null,
+    createdAt: log?.createdAt ?? null,
+    request: { method: log?.method ?? result.request?.method ?? null, url: result.request?.url ?? log?.url ?? null },
+    response: { status: result.status ?? null, ok: Boolean(result.ok), passed: result.passed !== false, elapsedMs: result.elapsed_ms ?? null, truncated: Boolean(result.truncated) },
+    assertions: { passed: (result.assertions ?? []).filter((entry) => entry.passed).length, total: (result.assertions ?? []).length },
+    diagnosis: result.diagnosis ? { category: result.diagnosis.category, summary: result.diagnosis.summary } : null,
+    contract: result.contractDiff ? { status: result.contractDiff.status, schema: result.contractDiff.schema?.name ?? null, missingRequiredFields: (result.contractDiff.missingRequiredFields ?? []).slice(0, 20), unexpectedFields: (result.contractDiff.unexpectedFields ?? []).slice(0, 20), typeMismatches: (result.contractDiff.typeMismatches ?? []).slice(0, 20) } : null
+  };
+}
+function tokenTelemetry(value) {
+  const bytes = Buffer.byteLength(JSON.stringify(value ?? {}), "utf8");
+  return { responseBytes: bytes, estimatedTokens: Math.ceil(bytes / 4), method: "utf8-bytes/4 estimate" };
+}
 function responsePayload(result = {}) {
   if (result.json !== void 0) return result.json;
   try {
@@ -285988,6 +286047,46 @@ ${results.map(requestSummarySafe).join("\n")}`;
     const events = timelineForProject(state, project.id, { types: args?.types, before: args?.before, limit: args?.limit ?? 50 });
     const summary = { total: events.length, failures: events.filter((event) => event.severity === "danger").length, changes: events.filter((event) => ["change", "agent", "decision"].includes(event.type)).length, newestAt: events[0]?.createdAt ?? null, oldestAt: events.at(-1)?.createdAt ?? null };
     return toolResult({ project: { id: project.id, name: project.name }, events, summary, next_before: events.at(-1)?.createdAt ?? null }, `${events.length} timeline events: ${summary.failures} failures and ${summary.changes} recorded changes.`);
+  }
+  if (name === "analyze_and_repair_contract") {
+    const state = await loadState();
+    const project = findProject(state, args?.project_id);
+    if (!project) return toolResult({ error: "Project not found" }, "Project not found.", true);
+    const method = args?.method ? String(args.method).toUpperCase() : null;
+    let request = args?.request_id ? project.requests.find((entry) => entry.id === args.request_id) : null;
+    if (!request && args?.route) request = project.requests.find((entry) => (!method || entry.method === method) && normalizeRoute2(entry.url) === normalizeRoute2(args.route));
+    if (!request) request = project.requests.find((entry) => state.history.some((log) => log.projectId === project.id && log.requestId === entry.id && (!method || log.method === method))) ?? project.requests[0];
+    const latestRun = request ? state.history.find((entry) => entry.projectId === project.id && entry.requestId === request.id) : null;
+    const context = latestRun ? contextForLog(project, latestRun) : request ? contextForLog(project, { method: request.method, url: request.url }) : {};
+    const projectEvidence = summarizeProjectEvidence(project, state.history);
+    const compactSummary = {
+      id: project.id,
+      name: project.name,
+      goal: String(project.summary?.goal ?? "").slice(0, 240),
+      status: projectEvidence.status,
+      counts: { endpoints: project.sourceContext?.endpoints?.length ?? 0, requests: project.requests?.length ?? 0, schemas: project.sourceContext?.schemas?.length ?? 0, openIssues: projectEvidence.corrections.backend.length + projectEvidence.corrections.frontend.length + projectEvidence.corrections.schema.length },
+      topIssues: [...projectEvidence.corrections.backend, ...projectEvidence.corrections.frontend, ...projectEvidence.corrections.schema].slice(0, 3).map((issue2) => ({ type: issue2.type, severity: issue2.severity, title: issue2.title, evidence: issue2.evidence }))
+    };
+    const scope = { projectId: project.id, requestId: request?.id ?? null, route: request?.url ?? args?.route ?? null, method: request?.method ?? method ?? null, files: [...new Set([context.consumer?.source, context.endpoint?.source, ...(context.schemas ?? []).map((entry) => entry.source)].filter(Boolean))] };
+    const result = { phase: args?.verify_after_changes ? "verification" : "analysis", projectSummary: compactSummary, endpoint: request ? { id: request.id, name: request.name, method: request.method, url: request.url } : context.endpoint ? { method: context.endpoint.method, path: context.endpoint.path } : null, evidence: { source: boundedContractContext(context), run: latestRun ? boundedRunEvidence(latestRun) : null }, scope, correction: latestRun ? buildFixPlan(project, latestRun, context) : { probableRootCause: "No saved run is available yet.", confidence: 0, affectedFiles: scope.files, requiresApproval: true, nextAction: "Run the selected request, then analyze the resulting evidence." }, verification: null };
+    if (args?.verify_after_changes) {
+      if (!request || !latestRun) return toolResult(result, "Verification needs a saved request with a previous run.", true);
+      const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
+      if (unsafe && args?.allow_state_change !== true) return toolResult({ ...result, error: "State-changing verification requires allow_state_change=true" }, `Verification blocked: ${request.method} can change state.`, true);
+      const currentResult = await executeSaved(executeRequest, project, request, { maxAttempts: 1 });
+      currentResult.contractDiff = contractDiffFor(project, currentResult);
+      const currentRun = await addHistory({ projectId: project.id, requestId: request.id, requestName: request.name, method: request.method, url: request.url, result: currentResult, verification: { originalRunId: latestRun.id, scope } });
+      const comparison = compareRunEvidence(latestRun, currentRun);
+      const baselineContract = latestRun.result?.contractDiff ?? contractDiffFor(project, latestRun.result ?? {});
+      const contractPassed = !currentResult.contractDiff || currentResult.contractDiff.status !== "drift";
+      result.verification = { runId: currentRun.id, passed: Boolean(currentResult.ok && currentResult.passed !== false && contractPassed), comparison, scope, contract: { before: baselineContract ? { status: baselineContract.status, schema: baselineContract.schema?.name ?? null } : null, after: currentResult.contractDiff ? { status: currentResult.contractDiff.status, schema: currentResult.contractDiff.schema?.name ?? null } : null, passed: contractPassed } };
+      result.evidence.currentRun = boundedRunEvidence(currentRun);
+      result.telemetry = tokenTelemetry(result);
+      await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "contract", severity: result.verification.passed ? "success" : "danger", actor: "aipi", title: result.verification.passed ? "Affected contract verified" : "Affected contract still failing", summary: `${request.method} ${request.url} verified against the saved baseline.`, tags: [request.method, result.verification.passed ? "verified" : "needs-work"], source: { kind: "bounded-contract-workflow", ref: currentRun.id, previousRef: latestRun.id, files: scope.files }, evidence: { comparison, estimatedTokens: result.telemetry?.estimatedTokens ?? null } }));
+    }
+    result.telemetry = tokenTelemetry(result);
+    await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "agent", severity: result.verification ? result.verification.passed ? "success" : "warning" : "info", actor: "aipi", title: result.verification ? "Bounded contract verification completed" : "Bounded contract analysis completed", summary: `${request?.method ?? "API"} ${request?.url ?? args?.route ?? "endpoint"} analyzed with a narrow evidence scope.`, tags: ["bounded-context", result.verification ? "verification" : "analysis"], source: { kind: "bounded-contract-workflow", requestId: request?.id ?? null, files: scope.files }, evidence: { estimatedTokens: result.telemetry.estimatedTokens, responseBytes: result.telemetry.responseBytes, scope } }));
+    return toolResult(result, result.verification ? `${result.verification.passed ? "Verified" : "Needs work"}: ${scope.method} ${scope.route}; ${result.telemetry.estimatedTokens} estimated context tokens.` : `Analyzed ${scope.method ?? "API"} ${scope.route ?? "endpoint"}; correction prepared for ${scope.files.length} affected file(s), ${result.telemetry.estimatedTokens} estimated context tokens.`, Boolean(result.verification && !result.verification.passed));
   }
   if (name === "record_project_event") {
     let event;
@@ -286377,8 +286476,12 @@ async function handle(message) {
   }
 }
 var dashboardRuntime = { url: `http://127.0.0.1:${process.env.API_FORGE_PORT || 43127}` };
+function setAipiRuntime(runtime2) {
+  dashboardRuntime = runtime2;
+  return dashboardRuntime;
+}
 async function startAipiRuntime() {
-  dashboardRuntime = await startDashboard({ executeRequest });
+  dashboardRuntime = await startDashboard({ executeRequest, callTool });
   return dashboardRuntime;
 }
 if (process.argv[1] && path10.basename(process.argv[1]) === "api-forge-server.mjs" && fileURLToPath2(import.meta.url) === process.argv[1]) {
@@ -286401,7 +286504,7 @@ function createServer() {
   const server2 = new McpServer(
     { name: "aipi", version: "0.3.0" },
     {
-      instructions: "Treat the AIPI dashboard as an inspection surface. Use trace_route, diff_contract, run_local_diagnostic, check_blast_radius, and generate_fixture as the evidence loop before editing code."
+      instructions: "Treat the AIPI dashboard as an inspection surface. For fixes, prefer analyze_and_repair_contract: retrieve a small project summary, identify one endpoint, return bounded evidence, let the editor apply the smallest correction, then verify only that affected contract. Use trace_route, diff_contract, run_local_diagnostic, check_blast_radius, and generate_fixture as focused supporting tools."
     }
   );
   for (const tool of tools) {
@@ -286415,7 +286518,7 @@ function createServer() {
         annotations: tool.annotations,
         _meta: tool._meta
       },
-      async (args) => await callTool(tool.name, args ?? {})
+      async (args) => await invokeTool(tool.name, args ?? {})
     );
   }
   server2.registerResource(
@@ -286442,7 +286545,20 @@ function createServer() {
   );
   return server2;
 }
-var runtime = await startAipiRuntime();
+var daemonUrl = process.env.AIPI_DAEMON_URL;
+var daemonToken = process.env.AIPI_DAEMON_TOKEN;
+var runtime = daemonUrl ? setAipiRuntime({ url: daemonUrl, token: daemonToken, port: Number(process.env.AIPI_PORT || 49152) }) : await startAipiRuntime();
+async function invokeTool(name, args) {
+  if (!daemonUrl || !daemonToken) return await callTool(name, args ?? {});
+  const response = await fetch(`${daemonUrl}/api/tools/call`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${daemonToken}` },
+    body: JSON.stringify({ name, arguments: args ?? {} })
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `AIPI daemon tool call failed (${response.status})`);
+  return payload;
+}
 var handle2 = serveStdio(() => createServer(), {
   legacy: "serve",
   onerror: (error62) => console.error("AIPI MCP error:", error62)
