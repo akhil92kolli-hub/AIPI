@@ -50,8 +50,10 @@ npx @vmise/aipi-companion open --app https://aipi.website/dashboard/</code></pre
       </article>
       <article class="content-card">
         <p class="eyebrow">03 · Connect</p>
-        <h2>Open the cloud-rendered dashboard</h2>
-        <ol class="step-list"><li><code>aipi init</code> writes <code>.aipirc.json</code> and IDE MCP settings.</li><li><code>aipi open</code> starts or reuses the loopback daemon.</li><li>A short-lived token is placed in the dashboard hash.</li><li>The browser talks directly to <code>127.0.0.1</code>; API work remains local.</li></ol>
+        <h2>One command from project root</h2>
+        <pre><code>npx @vmise/aipi-companion init</code></pre>
+        <ol class="step-list"><li>Detects your project and writes <code>.aipirc.json</code>.</li><li>Registers MCP for Codex, Cursor, and VS Code without replacing existing settings.</li><li>Starts or reuses the local daemon and registers the project once.</li><li>Opens the connected dashboard with a short-lived token.</li></ol>
+        <p>Reload your IDE after first setup and approve project trust if prompted. To open the dashboard again later, run <code>npx @vmise/aipi-companion open --app https://aipi.website/dashboard/</code>.</p>
         <p>The current release uses direct authenticated loopback. An optional outbound pairing bridge is a later enterprise phase.</p>
       </article>
       <article class="content-card token-card">
@@ -73,7 +75,7 @@ npx @vmise/aipi-companion open --app https://aipi.website/dashboard/</code></pre
       <article class="content-card accent-card">
         <p class="eyebrow">06 · Prerequisites</p>
         <h2>What you need</h2>
-        <div class="check-list"><p>✓ Node.js 20 or newer</p><p>✓ A local JavaScript or TypeScript project</p><p>✓ Cursor, Windsurf, Claude Desktop, or another MCP client (optional)</p><p>✓ No account, database, or Docker required for the local core</p></div>
+        <div class="check-list"><p>✓ Node.js 22 or newer</p><p>✓ A local JavaScript or TypeScript project</p><p>✓ Codex, Cursor, VS Code, or another MCP client (optional)</p><p>✓ No account, database, or Docker required for the local core</p></div>
       </article>
       <article class="content-card">
         <p class="eyebrow">07 · Data boundary</p>
