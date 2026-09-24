@@ -21,15 +21,15 @@ The Cloudflare application serves static HTML, CSS, and JavaScript. Source code,
 
 The current release intentionally uses a direct browser-to-loopback connection:
 
-1. `aipi open` starts the companion on `127.0.0.1:49152` or the next configured port.
+1. `aipi open` starts or reuses the companion daemon on `127.0.0.1:49152` or the next configured port.
 2. The companion generates an ephemeral `sec_...` bearer token.
-3. The CLI opens `https://app.aipi.dev/dashboard/?port=49152&token=...`.
+3. The CLI opens `https://app.aipi.dev/dashboard/#port=49152&token=...&project=BusinessDistrict`.
 4. The dashboard uses the supplied port and token for authenticated loopback requests.
 5. The companion accepts only the configured dashboard origin or a local development origin, responds to Private Network Access preflights, and never binds to a public interface.
 
 The token is held in browser session storage, is not written to project data, and expires when the companion process exits. Every `/api/*` route except `/api/connection` requires the token.
 
-Opening the hosted `/dashboard/` route directly is a documentation/onboarding state, not a connected workspace. A connected dashboard URL must be launched by `aipi open` or `aipi dev` so the browser receives the loopback `port` and ephemeral `token` query parameters.
+Opening the hosted `/dashboard/` route directly is a documentation/onboarding state, not a connected workspace. A connected dashboard URL must be launched by `aipi open` or `aipi dev` so the browser receives the loopback `port` and ephemeral `token` launch parameters.
 
 ## Evidence timeline
 
@@ -54,11 +54,12 @@ Install AIPI from its plugin marketplace entry, then start a new Codex task. The
 ### CLI and other MCP editors
 
 ```bash
-npm install --global @akhil92kolli-hub/aipi-companion
-aipi open --app https://aipi.website/dashboard/
+cd /path/to/your/project
+npx @akhil92kolli-hub/aipi-companion init
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
-For one-off execution after the registry is configured, run:
+For one-off execution, run:
 
 ```bash
 npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
@@ -76,6 +77,8 @@ Register the local MCP server in the editor:
   }
 }
 ```
+
+`aipi init` writes `.aipirc.json`, injects local Cursor and VS Code MCP configuration, and records detected source-root topology. `aipi daemon` owns the loopback server, while `aipi mcp` is intentionally a thin stdio client: it checks for a running local daemon, starts one in the background if needed, then relays MCP tool calls to the daemon instead of binding a second dashboard server.
 
 During local dashboard development, use `aipi dev --app http://localhost:8788/dashboard/`. Production uses `aipi open --app https://app.aipi.dev/dashboard/`.
 

@@ -9,17 +9,21 @@ let selectedRequestId;
 let apiFilter = "all";
 let timelineFilter = "all";
 let saveTimer;
+let heartbeatTimer;
 let bridgeRequestId = 1;
 const bridgeRequests = new Map();
 let localConnection = null;
 
 function localLaunchParams() {
-  const params = new URLSearchParams(location.search);
-  const port = params.get("port");
-  const token = params.get("token");
+  const query = new URLSearchParams(location.search);
+  const rawHash = location.hash.replace(/^#/, "");
+  const hash = rawHash && !rawHash.startsWith("/") && rawHash.includes("=") ? new URLSearchParams(rawHash) : new URLSearchParams();
+  const port = query.get("port") || hash.get("port");
+  const token = query.get("token") || hash.get("token");
+  const project = query.get("project") || hash.get("project");
   const hasPort = port !== null && port !== "";
   const validPort = hasPort && /^\d{2,5}$/.test(port) && Number(port) > 0 && Number(port) <= 65535;
-  return { port, token, hasPort, validPort };
+  return { port, token, project, hasPort, validPort, launchHash: hash.size > 0 };
 }
 
 function apiOrigin() {
@@ -111,6 +115,22 @@ function toast(message) {
   setTimeout(() => node.classList.remove("show"), 2200);
 }
 
+function startHeartbeat() {
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = setInterval(async () => {
+    if (!apiOrigin()) return;
+    const wasConnected = localConnection?.connected;
+    try {
+      const response = await fetch(`${apiOrigin()}/health`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      localConnection = { ...(localConnection ?? {}), connected: true };
+    } catch {
+      localConnection = { ...(localConnection ?? {}), connected: false };
+    }
+    if (wasConnected !== localConnection.connected) render();
+  }, 5000);
+}
+
 function mergeRecordedEvent(result) {
   if (!result?.event || (state.timeline ?? []).some((event) => event.id === result.event.id)) return;
   state.timeline ??= [];
@@ -134,6 +154,7 @@ function scheduleSave() {
 }
 
 function route() {
+  if (localLaunchParams().launchHash) return { name: "project", id: undefined };
   const value = location.hash.replace(/^#\/?/, "");
   const [name = "home", id] = value.split("/");
   return { name: name || "home", id };
@@ -364,6 +385,7 @@ function shell(content, currentRoute) {
         <button class="header-home ${activeRoot === "home" ? "active" : ""}" data-route="home" ${activeRoot === "home" ? 'aria-current="page"' : ""}>Home</button>
         <div class="header-actions"><span class="connection-pill ${localConnection?.connected ? "connected" : ""}">${localConnection?.connected ? "Local companion" : "Disconnected"}</span><button class="header-upgrade" id="upgradeButton">Upgrade</button><button class="header-settings" id="settingsButton">Settings</button></div>
       </header>
+      ${localConnection?.connected === false ? `<div class="offline-banner"><strong>Local Companion Offline</strong><span>Run <code>aipi dev</code> in your project folder to re-establish the local evidence stream.</span></div>` : ""}
       <main class="route-view" data-route-name="${esc(currentRoute.name)}">${content}</main>
       <button class="chat-launcher" data-codex-action="contextual" aria-label="Send this screen's context to Codex chat"><span class="chat-spark">✦</span><span class="chat-label">Ask Codex</span></button>
       <nav class="bottom-nav" aria-label="Primary navigation">
@@ -890,14 +912,17 @@ async function init() {
   state = await api("/api/state");
   let rememberedProjectId;
   try { rememberedProjectId = localStorage.getItem("api-forge:selectedProject"); } catch {}
-  selectedProjectId = state.projects.some((entry) => entry.id === rememberedProjectId) ? rememberedProjectId : state.projects.some((entry) => entry.id === state.activeProjectId) ? state.activeProjectId : state.projects[0]?.id;
+  const launch = localLaunchParams();
+  const launchProject = launch.project ? state.projects.find((entry) => entry.name === launch.project || entry.id === launch.project) : null;
+  selectedProjectId = launchProject?.id ?? (state.projects.some((entry) => entry.id === rememberedProjectId) ? rememberedProjectId : state.projects.some((entry) => entry.id === state.activeProjectId) ? state.activeProjectId : state.projects[0]?.id);
   selectedRequestId = project()?.requests[0]?.id;
-  if (!location.hash) {
+  if (!location.hash || launch.launchHash) {
     let startRoute = "home";
     try { startRoute = localStorage.getItem("aipi:startRoute") || "home"; } catch {}
     location.hash = `#/${startRoute}`;
   }
   render();
+  startHeartbeat();
 }
 
 init().catch((error) => {
@@ -908,6 +933,6 @@ init().catch((error) => {
     ? "This dashboard shell loaded, but the browser could not reach the local companion for this session. Restart AIPI from your project root to create a fresh local token."
     : "The hosted dashboard is only the UI shell. Your project data, API traffic, credentials, logs, and MCP tools live in the local companion.";
   const appUrl = `${location.origin}${location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`}`;
-  const command = `npx @akhil92kolli-hub/aipi-companion open --app ${appUrl}`;
-  $("#app").innerHTML = `<div class="fatal-error"><p class="eyebrow">Cloud UI · Local engine</p><h1>${title}</h1><p>${copy}</p><pre class="command-snippet"><code>${esc(command)}</code></pre><p class="supporting-copy">Run this from the project root. AIPI starts <code>127.0.0.1:49152</code>, creates a short-lived <code>sec_...</code> token, then opens <code>/dashboard/?port=...&amp;token=...</code>.</p><div class="action-row"><a class="primary-button" href="/install.html">Read installation guide</a><a class="secondary-button" href="/">Back to AIPI website</a></div><small>${esc(error.message)}</small></div>`;
+  const command = `npx @akhil92kolli-hub/aipi-companion init\nnpx @akhil92kolli-hub/aipi-companion open --app ${appUrl}`;
+  $("#app").innerHTML = `<div class="fatal-error"><p class="eyebrow">Cloud UI · Local engine</p><h1>${title}</h1><p>${copy}</p><pre class="command-snippet"><code>${esc(command)}</code></pre><p class="supporting-copy">Run this from the project root. AIPI starts or reuses <code>127.0.0.1:49152</code>, creates a short-lived <code>sec_...</code> token, then opens <code>/dashboard/#port=...&amp;token=...</code>.</p><div class="action-row"><a class="primary-button" href="/install.html">Read installation guide</a><a class="secondary-button" href="/">Back to AIPI website</a></div><small>${esc(error.message)}</small></div>`;
 });

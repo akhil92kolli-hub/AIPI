@@ -44,20 +44,21 @@ Ask Codex to **open my AIPI dashboard**, run `aipi open`, or run `npm run dashbo
 - Automatic recognition of common frontend calls, backend routes, database tables, and integration gaps
 - A living Project summary separating backend problems, frontend corrections, schema issues, evidence freshness, goals, tasks, and iteration history
 
-The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts the companion, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters. Visiting `/dashboard/` directly shows the shell only; use `aipi open` so the URL includes `?port=...&token=...`.
+The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts or reuses the daemon, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters. Visiting `/dashboard/` directly shows the shell only; use `aipi open` so the URL includes `#port=...&token=...`.
 
 ## Deployment and installation model
 
 AIPI is local-first by design. Cloudflare hosts the public website, documentation, and dashboard shell. The local AIPI Companion runs the MCP server, scans source code, executes API requests, and stores logs and evidence on the developer's machine. An optional outbound pairing bridge can connect the cloud dashboard to an approved local companion without opening an inbound port.
 
-Install the companion:
+Install and initialize the companion:
 
 ```bash
-npm install -g @akhil92kolli-hub/aipi-companion
-aipi open --app https://aipi.website/dashboard/
+cd /path/to/your/project
+npx @akhil92kolli-hub/aipi-companion init
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
-For one-off execution after the registry is configured, use:
+For one-off execution, use:
 
 ```bash
 npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
@@ -75,6 +76,8 @@ Register the local MCP server in the IDE:
   }
 }
 ```
+
+`aipi init` writes `.aipirc.json`, detects common source roots such as `apps/web`, `apps/api`, `prisma`, and `supabase`, and injects the AIPI MCP entry into local Cursor and VS Code config. `aipi daemon` owns the loopback server, while `aipi mcp` is a thin client: it reuses an existing daemon or starts one silently before serving MCP over stdio.
 
 See the hosted [installation guide](https://aipi.website/install.html) for the cloud dashboard, pairing flow, data boundary, and troubleshooting model.
 
