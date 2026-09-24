@@ -170,6 +170,13 @@ export const tools = [
     annotations: { openWorldHint: false, readOnlyHint: false, destructiveHint: false, idempotentHint: false }
   },
   {
+    name: "analyze_and_repair_contract",
+    title: "Analyze and verify one API contract",
+    description: "Return a small project summary, identify one relevant endpoint, provide bounded redacted evidence, and prepare or verify a correction for only that contract. The AI editor remains responsible for source changes.",
+    inputSchema: { type: "object", required: ["project_id"], properties: { project_id: { type: "string" }, request_id: { type: "string", description: "Saved request to analyze. If omitted, the first saved request with a recent run is selected." }, route: { type: "string", description: "Optional route selector such as /api/checkout." }, method: { type: "string", enum: METHODS }, verify_after_changes: { type: "boolean", default: false }, allow_state_change: { type: "boolean", default: false } }, additionalProperties: false },
+    annotations: { openWorldHint: true, readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+  },
+  {
     name: "get_endpoint_context",
     title: "Get endpoint integration context",
     description: "Return one endpoint's implementation, frontend consumers, schemas, saved requests, source evidence, and confidence.",
@@ -703,6 +710,33 @@ function contextForLog(project, log) {
   return context ? { endpoint: context.endpoint, consumer: context.consumers[0] ?? null, schemas: context.schemas, integrations: context.integrations } : {};
 }
 
+function boundedContractContext(context = {}) {
+  return {
+    endpoint: context.endpoint ? { method: context.endpoint.method, path: context.endpoint.path, source: context.endpoint.source, line: context.endpoint.line, framework: context.endpoint.framework, confidence: context.endpoint.confidence } : null,
+    consumer: context.consumer ? { source: context.consumer.source, line: context.consumer.line, method: context.consumer.method, route: context.consumer.route, confidence: context.consumer.confidence } : null,
+    schemas: (context.schemas ?? []).slice(0, 5).map((schema) => ({ name: schema.name, source: schema.source, line: schema.line, columns: (schema.columns ?? []).slice(0, 20).map((column) => ({ name: column.name, type: column.type, required: column.required, primaryKey: column.primaryKey })) })),
+    integrations: (context.integrations ?? []).slice(0, 10).map((integration) => ({ status: integration.status, confidence: integration.confidence, reason: integration.reason }))
+  };
+}
+
+function boundedRunEvidence(log) {
+  const result = log?.result ?? {};
+  return {
+    runId: log?.id ?? null,
+    createdAt: log?.createdAt ?? null,
+    request: { method: log?.method ?? result.request?.method ?? null, url: result.request?.url ?? log?.url ?? null },
+    response: { status: result.status ?? null, ok: Boolean(result.ok), passed: result.passed !== false, elapsedMs: result.elapsed_ms ?? null, truncated: Boolean(result.truncated) },
+    assertions: { passed: (result.assertions ?? []).filter((entry) => entry.passed).length, total: (result.assertions ?? []).length },
+    diagnosis: result.diagnosis ? { category: result.diagnosis.category, summary: result.diagnosis.summary } : null,
+    contract: result.contractDiff ? { status: result.contractDiff.status, schema: result.contractDiff.schema?.name ?? null, missingRequiredFields: (result.contractDiff.missingRequiredFields ?? []).slice(0, 20), unexpectedFields: (result.contractDiff.unexpectedFields ?? []).slice(0, 20), typeMismatches: (result.contractDiff.typeMismatches ?? []).slice(0, 20) } : null
+  };
+}
+
+function tokenTelemetry(value) {
+  const bytes = Buffer.byteLength(JSON.stringify(value ?? {}), "utf8");
+  return { responseBytes: bytes, estimatedTokens: Math.ceil(bytes / 4), method: "utf8-bytes/4 estimate" };
+}
+
 function responsePayload(result = {}) {
   if (result.json !== undefined) return result.json;
   try { return result.body ? JSON.parse(result.body) : undefined; }
@@ -823,6 +857,47 @@ export async function callTool(name, args) {
     const events = timelineForProject(state, project.id, { types: args?.types, before: args?.before, limit: args?.limit ?? 50 });
     const summary = { total: events.length, failures: events.filter((event) => event.severity === "danger").length, changes: events.filter((event) => ["change", "agent", "decision"].includes(event.type)).length, newestAt: events[0]?.createdAt ?? null, oldestAt: events.at(-1)?.createdAt ?? null };
     return toolResult({ project: { id: project.id, name: project.name }, events, summary, next_before: events.at(-1)?.createdAt ?? null }, `${events.length} timeline events: ${summary.failures} failures and ${summary.changes} recorded changes.`);
+  }
+
+  if (name === "analyze_and_repair_contract") {
+    const state = await loadState();
+    const project = findProject(state, args?.project_id);
+    if (!project) return toolResult({ error: "Project not found" }, "Project not found.", true);
+    const method = args?.method ? String(args.method).toUpperCase() : null;
+    let request = args?.request_id ? project.requests.find((entry) => entry.id === args.request_id) : null;
+    if (!request && args?.route) request = project.requests.find((entry) => (!method || entry.method === method) && normalizeRoute(entry.url) === normalizeRoute(args.route));
+    if (!request) request = project.requests.find((entry) => state.history.some((log) => log.projectId === project.id && log.requestId === entry.id && (!method || log.method === method))) ?? project.requests[0];
+    const latestRun = request ? state.history.find((entry) => entry.projectId === project.id && entry.requestId === request.id) : null;
+    const context = latestRun ? contextForLog(project, latestRun) : request ? contextForLog(project, { method: request.method, url: request.url }) : {};
+    const projectEvidence = summarizeProjectEvidence(project, state.history);
+    const compactSummary = {
+      id: project.id,
+      name: project.name,
+      goal: String(project.summary?.goal ?? "").slice(0, 240),
+      status: projectEvidence.status,
+      counts: { endpoints: project.sourceContext?.endpoints?.length ?? 0, requests: project.requests?.length ?? 0, schemas: project.sourceContext?.schemas?.length ?? 0, openIssues: projectEvidence.corrections.backend.length + projectEvidence.corrections.frontend.length + projectEvidence.corrections.schema.length },
+      topIssues: [...projectEvidence.corrections.backend, ...projectEvidence.corrections.frontend, ...projectEvidence.corrections.schema].slice(0, 3).map((issue) => ({ type: issue.type, severity: issue.severity, title: issue.title, evidence: issue.evidence }))
+    };
+    const scope = { projectId: project.id, requestId: request?.id ?? null, route: request?.url ?? args?.route ?? null, method: request?.method ?? method ?? null, files: [...new Set([context.consumer?.source, context.endpoint?.source, ...(context.schemas ?? []).map((entry) => entry.source)].filter(Boolean))] };
+    const result = { phase: args?.verify_after_changes ? "verification" : "analysis", projectSummary: compactSummary, endpoint: request ? { id: request.id, name: request.name, method: request.method, url: request.url } : context.endpoint ? { method: context.endpoint.method, path: context.endpoint.path } : null, evidence: { source: boundedContractContext(context), run: latestRun ? boundedRunEvidence(latestRun) : null }, scope, correction: latestRun ? buildFixPlan(project, latestRun, context) : { probableRootCause: "No saved run is available yet.", confidence: 0, affectedFiles: scope.files, requiresApproval: true, nextAction: "Run the selected request, then analyze the resulting evidence." }, verification: null };
+    if (args?.verify_after_changes) {
+      if (!request || !latestRun) return toolResult(result, "Verification needs a saved request with a previous run.", true);
+      const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
+      if (unsafe && args?.allow_state_change !== true) return toolResult({ ...result, error: "State-changing verification requires allow_state_change=true" }, `Verification blocked: ${request.method} can change state.`, true);
+      const currentResult = await executeSaved(executeRequest, project, request, { maxAttempts: 1 });
+      currentResult.contractDiff = contractDiffFor(project, currentResult);
+      const currentRun = await addHistory({ projectId: project.id, requestId: request.id, requestName: request.name, method: request.method, url: request.url, result: currentResult, verification: { originalRunId: latestRun.id, scope } });
+      const comparison = compareRunEvidence(latestRun, currentRun);
+      const baselineContract = latestRun.result?.contractDiff ?? contractDiffFor(project, latestRun.result ?? {});
+      const contractPassed = !currentResult.contractDiff || currentResult.contractDiff.status !== "drift";
+      result.verification = { runId: currentRun.id, passed: Boolean(currentResult.ok && currentResult.passed !== false && contractPassed), comparison, scope, contract: { before: baselineContract ? { status: baselineContract.status, schema: baselineContract.schema?.name ?? null } : null, after: currentResult.contractDiff ? { status: currentResult.contractDiff.status, schema: currentResult.contractDiff.schema?.name ?? null } : null, passed: contractPassed } };
+      result.evidence.currentRun = boundedRunEvidence(currentRun);
+      result.telemetry = tokenTelemetry(result);
+      await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "contract", severity: result.verification.passed ? "success" : "danger", actor: "aipi", title: result.verification.passed ? "Affected contract verified" : "Affected contract still failing", summary: `${request.method} ${request.url} verified against the saved baseline.`, tags: [request.method, result.verification.passed ? "verified" : "needs-work"], source: { kind: "bounded-contract-workflow", ref: currentRun.id, previousRef: latestRun.id, files: scope.files }, evidence: { comparison, estimatedTokens: result.telemetry?.estimatedTokens ?? null } }));
+    }
+    result.telemetry = tokenTelemetry(result);
+    await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "agent", severity: result.verification ? (result.verification.passed ? "success" : "warning") : "info", actor: "aipi", title: result.verification ? "Bounded contract verification completed" : "Bounded contract analysis completed", summary: `${request?.method ?? "API"} ${request?.url ?? args?.route ?? "endpoint"} analyzed with a narrow evidence scope.`, tags: ["bounded-context", result.verification ? "verification" : "analysis"], source: { kind: "bounded-contract-workflow", requestId: request?.id ?? null, files: scope.files }, evidence: { estimatedTokens: result.telemetry.estimatedTokens, responseBytes: result.telemetry.responseBytes, scope } }));
+    return toolResult(result, result.verification ? `${result.verification.passed ? "Verified" : "Needs work"}: ${scope.method} ${scope.route}; ${result.telemetry.estimatedTokens} estimated context tokens.` : `Analyzed ${scope.method ?? "API"} ${scope.route ?? "endpoint"}; correction prepared for ${scope.files.length} affected file(s), ${result.telemetry.estimatedTokens} estimated context tokens.` , Boolean(result.verification && !result.verification.passed));
   }
 
   if (name === "record_project_event") {
@@ -1234,8 +1309,13 @@ async function handle(message) {
 
 let dashboardRuntime = { url: `http://127.0.0.1:${process.env.API_FORGE_PORT || 43127}` };
 
+export function setAipiRuntime(runtime) {
+  dashboardRuntime = runtime;
+  return dashboardRuntime;
+}
+
 export async function startAipiRuntime() {
-  dashboardRuntime = await startDashboard({ executeRequest });
+  dashboardRuntime = await startDashboard({ executeRequest, callTool });
   return dashboardRuntime;
 }
 
