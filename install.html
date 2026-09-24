@@ -54,8 +54,14 @@ npx @vmise/aipi-companion open --app https://aipi.website/dashboard/</code></pre
         <ol class="step-list"><li><code>aipi init</code> writes <code>.aipirc.json</code> and IDE MCP settings.</li><li><code>aipi open</code> starts or reuses the loopback daemon.</li><li>A short-lived token is placed in the dashboard hash.</li><li>The browser talks directly to <code>127.0.0.1</code>; API work remains local.</li></ol>
         <p>The current release uses direct authenticated loopback. An optional outbound pairing bridge is a later enterprise phase.</p>
       </article>
+      <article class="content-card token-card">
+        <p class="eyebrow">04 · Connection token</p>
+        <h2>How the dashboard connects</h2>
+        <ol class="step-list"><li>The local daemon creates a random, short-lived <code>sec_...</code> token when it starts.</li><li><code>aipi open</code> puts only the local port and token in the launch hash: <code>#port=49152&amp;token=sec_...</code>.</li><li>The hosted dashboard reads the hash in your browser and keeps the token in temporary session storage.</li><li>Browser requests go straight to <code>http://127.0.0.1:&lt;port&gt;</code> with an <code>Authorization: Bearer</code> header.</li></ol>
+        <p>Cloudflare delivers the UI but does not proxy the token, source code, credentials, API traffic, response bodies, logs, or project evidence.</p>
+      </article>
       <article class="content-card accent-card">
-        <p class="eyebrow">04 · MCP and daemon</p>
+        <p class="eyebrow">05 · MCP and daemon</p>
         <h2>One local engine for every client</h2>
         <pre><code>{
   "mcpServers": {
@@ -65,12 +71,12 @@ npx @vmise/aipi-companion open --app https://aipi.website/dashboard/</code></pre
         <p><code>aipi mcp</code> is a thin stdio client. It reuses the daemon started by the dashboard or starts one silently when an IDE calls it.</p>
       </article>
       <article class="content-card accent-card">
-        <p class="eyebrow">05 · Prerequisites</p>
+        <p class="eyebrow">06 · Prerequisites</p>
         <h2>What you need</h2>
         <div class="check-list"><p>✓ Node.js 20 or newer</p><p>✓ A local JavaScript or TypeScript project</p><p>✓ Cursor, Windsurf, Claude Desktop, or another MCP client (optional)</p><p>✓ No account, database, or Docker required for the local core</p></div>
       </article>
       <article class="content-card">
-        <p class="eyebrow">06 · Data boundary</p>
+        <p class="eyebrow">07 · Data boundary</p>
         <h2>Local by default</h2>
         <div class="check-list"><p>✓ Source code and credentials stay local</p><p>✓ API execution and response bodies stay local</p><p>✓ Logs and evidence stay in the local workspace</p><p>○ Optional contract metadata can be synchronized for teams</p></div>
       </article>
