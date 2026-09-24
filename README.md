@@ -44,7 +44,7 @@ Ask Codex to **open my AIPI dashboard**, run `aipi open`, or run `npm run dashbo
 - Automatic recognition of common frontend calls, backend routes, database tables, and integration gaps
 - A living Project summary separating backend problems, frontend corrections, schema issues, evidence freshness, goals, tasks, and iteration history
 
-The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts the companion, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters.
+The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts the companion, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters. Visiting `/dashboard/` directly shows the shell only; use `aipi open` so the URL includes `?port=...&token=...`.
 
 ## Deployment and installation model
 
@@ -53,11 +53,14 @@ AIPI is local-first by design. Cloudflare hosts the public website, documentatio
 Install the companion:
 
 ```bash
-npm config set @akhil92kolli-hub:registry https://npm.pkg.github.com
-# Authenticate with a GitHub classic token that has read:packages.
-npm login --scope=@akhil92kolli-hub --registry=https://npm.pkg.github.com
 npm install -g @akhil92kolli-hub/aipi-companion
-aipi open
+aipi open --app https://aipi.website/dashboard/
+```
+
+For one-off execution after the registry is configured, use:
+
+```bash
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 Register the local MCP server in the IDE:

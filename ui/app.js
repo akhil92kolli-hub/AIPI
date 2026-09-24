@@ -13,9 +13,18 @@ let bridgeRequestId = 1;
 const bridgeRequests = new Map();
 let localConnection = null;
 
-function apiOrigin() {
+function localLaunchParams() {
   const params = new URLSearchParams(location.search);
-  return window.__API_FORGE_ORIGIN__ ?? (params.get("port") ? `http://127.0.0.1:${Number(params.get("port"))}` : "");
+  const port = params.get("port");
+  const token = params.get("token");
+  const hasPort = port !== null && port !== "";
+  const validPort = hasPort && /^\d{2,5}$/.test(port) && Number(port) > 0 && Number(port) <= 65535;
+  return { port, token, hasPort, validPort };
+}
+
+function apiOrigin() {
+  const params = localLaunchParams();
+  return window.__API_FORGE_ORIGIN__ ?? (params.validPort ? `http://127.0.0.1:${Number(params.port)}` : "");
 }
 
 async function api(path, options = {}) {
@@ -28,10 +37,12 @@ async function api(path, options = {}) {
 }
 
 async function connectLocalCompanion() {
-  const params = new URLSearchParams(location.search);
-  const suppliedToken = params.get("token");
+  const params = localLaunchParams();
+  if (params.hasPort && !params.validPort) throw new Error("The local companion port in this dashboard URL is invalid.");
+  if (!apiOrigin()) throw new Error("Open AIPI with the local companion command so the dashboard receives a loopback port and session token.");
+  const suppliedToken = params.token;
   if (suppliedToken) {
-    localConnection = { connected: true, token: suppliedToken, companion: "local", port: params.get("port") };
+    localConnection = { connected: true, token: suppliedToken, companion: "local", port: params.port };
     try { sessionStorage.setItem("aipi:local-token", suppliedToken); } catch {}
   }
   if (!localConnection?.token) {
@@ -890,6 +901,13 @@ async function init() {
 }
 
 init().catch((error) => {
-  const hasLocalTarget = new URLSearchParams(location.search).has("port");
-  $("#app").innerHTML = `<div class="fatal-error"><h1>${hasLocalTarget ? "Local companion unavailable" : "Open AIPI from your project"}</h1><p>${hasLocalTarget ? "The dashboard could not reach the local companion. Start it again, then refresh this page." : "Run <code>npx @akhil92kolli-hub/aipi-companion open</code> from your project root. AIPI will start the local companion, add a short-lived token, and open this dashboard securely."}</p><div class="action-row"><a class="primary-button" href="http://127.0.0.1:49152/?port=49152">Try local companion</a><a class="secondary-button" href="/install.html">Read installation guide</a></div><small>${esc(error.message)}</small></div>`;
+  const launch = localLaunchParams();
+  const hasLocalTarget = launch.validPort;
+  const title = hasLocalTarget ? "Local companion unavailable" : "Open AIPI from your project";
+  const copy = hasLocalTarget
+    ? "This dashboard shell loaded, but the browser could not reach the local companion for this session. Restart AIPI from your project root to create a fresh local token."
+    : "The hosted dashboard is only the UI shell. Your project data, API traffic, credentials, logs, and MCP tools live in the local companion.";
+  const appUrl = `${location.origin}${location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`}`;
+  const command = `npx @akhil92kolli-hub/aipi-companion open --app ${appUrl}`;
+  $("#app").innerHTML = `<div class="fatal-error"><p class="eyebrow">Cloud UI · Local engine</p><h1>${title}</h1><p>${copy}</p><pre class="command-snippet"><code>${esc(command)}</code></pre><p class="supporting-copy">Run this from the project root. AIPI starts <code>127.0.0.1:49152</code>, creates a short-lived <code>sec_...</code> token, then opens <code>/dashboard/?port=...&amp;token=...</code>.</p><div class="action-row"><a class="primary-button" href="/install.html">Read installation guide</a><a class="secondary-button" href="/">Back to AIPI website</a></div><small>${esc(error.message)}</small></div>`;
 });

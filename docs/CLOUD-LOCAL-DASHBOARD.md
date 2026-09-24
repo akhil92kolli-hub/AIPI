@@ -23,11 +23,13 @@ The current release intentionally uses a direct browser-to-loopback connection:
 
 1. `aipi open` starts the companion on `127.0.0.1:49152` or the next configured port.
 2. The companion generates an ephemeral `sec_...` bearer token.
-3. The CLI opens `https://app.aipi.dev?port=49152&token=...`.
+3. The CLI opens `https://app.aipi.dev/dashboard/?port=49152&token=...`.
 4. The dashboard uses the supplied port and token for authenticated loopback requests.
 5. The companion accepts only the configured dashboard origin or a local development origin, responds to Private Network Access preflights, and never binds to a public interface.
 
 The token is held in browser session storage, is not written to project data, and expires when the companion process exits. Every `/api/*` route except `/api/connection` requires the token.
+
+Opening the hosted `/dashboard/` route directly is a documentation/onboarding state, not a connected workspace. A connected dashboard URL must be launched by `aipi open` or `aipi dev` so the browser receives the loopback `port` and ephemeral `token` query parameters.
 
 ## Evidence timeline
 
@@ -52,11 +54,14 @@ Install AIPI from its plugin marketplace entry, then start a new Codex task. The
 ### CLI and other MCP editors
 
 ```bash
-npm config set @akhil92kolli-hub:registry https://npm.pkg.github.com
-# Authenticate with a GitHub classic token that has read:packages.
-npm login --scope=@akhil92kolli-hub --registry=https://npm.pkg.github.com
 npm install --global @akhil92kolli-hub/aipi-companion
-aipi open
+aipi open --app https://aipi.website/dashboard/
+```
+
+For one-off execution after the registry is configured, run:
+
+```bash
+npx @akhil92kolli-hub/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 Register the local MCP server in the editor:
