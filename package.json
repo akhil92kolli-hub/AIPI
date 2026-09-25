@@ -47,7 +47,7 @@
     "test": "npm run test:regression && npm run test:integration && npm run test:cloud",
     "test:regression": "node scripts/regression-test.mjs",
     "test:integration": "node scripts/self-test.mjs",
-    "test:cloud": "node --experimental-strip-types scripts/cloud-smoke.mjs",
+    "test:cloud": "tsx scripts/cloud-smoke.mjs",
     "validate": "node scripts/validate-project.mjs"
   },
   "license": "MIT",
