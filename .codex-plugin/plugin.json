@@ -1,6 +1,6 @@
 {
   "name": "aipi",
-  "version": "0.3.0+codex.20260923074509",
+  "version": "0.3.0+codex.20260923154446",
   "description": "Runtime API intelligence for route tracing, contract diagnosis, regression fixtures, CI guards, and cross-repository blast-radius checks.",
   "author": {
     "name": "Akhil Kolli"

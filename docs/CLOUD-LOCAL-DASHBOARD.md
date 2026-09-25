@@ -23,7 +23,7 @@ The current release intentionally uses a direct browser-to-loopback connection:
 
 1. `aipi open` starts or reuses the companion daemon on `127.0.0.1:49152` or the next configured port.
 2. The companion generates an ephemeral `sec_...` bearer token.
-3. The CLI opens `https://app.aipi.dev/dashboard/#port=49152&token=...&project=BusinessDistrict`.
+3. The CLI opens `https://aipi.website/dashboard/#port=49152&token=...&project=BusinessDistrict`.
 4. The dashboard uses the supplied port and token for authenticated loopback requests.
 5. The companion accepts only the configured dashboard origin or a local development origin, responds to Private Network Access preflights, and never binds to a public interface.
 
@@ -92,7 +92,7 @@ Register the local MCP server in the editor:
 
 `aipi init` writes `.aipirc.json`, injects local Cursor and VS Code MCP configuration, and records detected source-root topology. `aipi daemon` owns the loopback server, while `aipi mcp` is intentionally a thin stdio client: it checks for a running local daemon, starts one in the background if needed, then relays MCP tool calls to the daemon instead of binding a second dashboard server.
 
-During local dashboard development, use `aipi dev --app http://localhost:8788/dashboard/`. Production uses `aipi open --app https://app.aipi.dev/dashboard/`.
+During local dashboard development, use `aipi dev --app http://localhost:8788/dashboard/`. Production uses `aipi open --app https://aipi.website/dashboard/`.
 
 ## Cloudflare deployment
 

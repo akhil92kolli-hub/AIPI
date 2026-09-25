@@ -385,4 +385,15 @@ export function redactStateSecrets(state, replacement = "[REDACTED]") {
   return redactedState;
 }
 
+export function preserveRedactedStateSecrets(incoming, current, replacement = "[REDACTED]") {
+  const merged = cloneState(incoming);
+  const existing = new Map(secretLocations(current).map((location) => [location.scope, location.owner[location.field]]));
+  for (const location of secretLocations(merged)) {
+    if (location.owner[location.field] === replacement && existing.has(location.scope)) {
+      location.owner[location.field] = existing.get(location.scope);
+    }
+  }
+  return merged;
+}
+
 export const SECRET_REFERENCE_PREFIX = REFERENCE_PREFIX;

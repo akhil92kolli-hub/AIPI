@@ -72,14 +72,15 @@ function databaseTypeToObserved(type) {
   return "string";
 }
 
-export function diffObservedContract(payload, schemas = [], route = "") {
+export function diffObservedContract(payload, schemas = [], route = "", { minimumConfidence = .5 } = {}) {
   const observed = recordFromPayload(payload);
   const ranked = schemas.map((schema) => ({ schema, score: schemaScore(schema, route) })).sort((a, b) => b.score - a.score);
   const selected = ranked[0]?.schema ?? null;
   const confidence = ranked[0]?.score ?? 0;
   const shape = inferJsonShape(payload);
-  if (!selected?.columns?.length || !observed) {
-    return { status: "unverified", route: normalizeRoute(route), observedShape: shape, schema: selected ? { name: selected.name, source: selected.source, line: selected.line } : null, confidence, missingRequiredFields: [], unexpectedFields: [], typeMismatches: [], note: selected ? "The selected database object has no parsed column metadata." : "No matching database schema was discovered." };
+  if (!selected?.columns?.length || !observed || confidence < minimumConfidence) {
+    const note = !selected ? "No matching database schema was discovered." : confidence < minimumConfidence ? "No database schema matched this route with sufficient confidence." : "The selected database object has no parsed column metadata.";
+    return { status: "unverified", route: normalizeRoute(route), observedShape: shape, schema: confidence >= minimumConfidence && selected ? { name: selected.name, source: selected.source, line: selected.line } : null, confidence, missingRequiredFields: [], unexpectedFields: [], typeMismatches: [], note };
   }
   const columns = new Map(selected.columns.map((column) => [normalizedName(column.name), column]));
   const fields = new Map(Object.entries(observed).map(([key, value]) => [normalizedName(key), { key, value }]));
@@ -98,11 +99,38 @@ export function diffObservedContract(payload, schemas = [], route = "") {
   return { status, route: normalizeRoute(route), observedShape: shape, schema: { name: selected.name, source: selected.source, line: selected.line, columns: selected.columns }, confidence, missingRequiredFields, unexpectedFields, typeMismatches };
 }
 
-function safeFixtureValue(value, key = "") {
-  if (isSecretName(key)) return "[REDACTED]";
-  if (Array.isArray(value)) return value.map((entry) => safeFixtureValue(entry));
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, safeFixtureValue(entry, entryKey)]));
-  return value;
+function syntheticFixtureValue(value, key, state) {
+  const normalized = String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (state.preserve.has(normalized) || state.preserve.has(state.path.join("."))) return value;
+  if (isSecretName(key) || (typeof value === "string" && /^(?:Bearer\s+)?eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value))) return "[REDACTED]";
+  let replacement;
+  let category;
+  if (/email|mailaddress/.test(normalized) || (typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) { category = "email"; replacement = "user@example.test"; }
+  else if (/(?:firstname|lastname|fullname|customername|username|^name$)/.test(normalized)) { category = "name"; replacement = "Example User"; }
+  else if (/phone|mobile|telephone/.test(normalized)) { category = "phone"; replacement = typeof value === "number" ? 15555550100 : "+1-555-555-0100"; }
+  else if (/address|street/.test(normalized)) { category = "address"; replacement = "1 Example Street"; }
+  else if (/city|town/.test(normalized)) { category = "city"; replacement = "Example City"; }
+  else if (/postcode|postalcode|zipcode|^zip$/.test(normalized)) { category = "postal"; replacement = "00000"; }
+  else if (/ipaddress|clientip|remoteip/.test(normalized)) { category = "ip"; replacement = "192.0.2.1"; }
+  else if (/dateofbirth|birthday|^dob$/.test(normalized)) { category = "birthdate"; replacement = "2000-01-01"; }
+  else if (typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) { category = "uuid"; replacement = "00000000-0000-4000-8000-000000000001"; }
+  else if (/(?:^id$|userid|customerid|accountid|ownerid)$/.test(normalized)) { category = "identifier"; replacement = typeof value === "number" ? 1001 : "example-id-1"; }
+  else if (typeof value === "string" && /^https?:\/\//i.test(value) && /(profile|avatar|photo|website|url)/.test(normalized)) { category = "url"; replacement = "https://example.test/resource"; }
+  if (!category) return value;
+  const mapKey = `${category}:${typeof value}:${String(value)}`;
+  if (!state.values.has(mapKey)) state.values.set(mapKey, replacement);
+  state.fields.add(state.path.join("."));
+  return state.values.get(mapKey);
+}
+
+export function anonymizeFixtureData(value, { preserveFields = [] } = {}) {
+  const state = { fields: new Set(), path: [], preserve: new Set(preserveFields.map((entry) => String(entry).toLowerCase().replace(/[^a-z0-9.]/g, ""))), values: new Map() };
+  function visit(entry, key = "") {
+    if (Array.isArray(entry)) return entry.map((item, index) => { state.path.push(String(index)); const result = visit(item, key); state.path.pop(); return result; });
+    if (entry && typeof entry === "object") return Object.fromEntries(Object.entries(entry).map(([entryKey, item]) => { state.path.push(entryKey); const result = visit(item, entryKey); state.path.pop(); return [entryKey, result]; }));
+    return syntheticFixtureValue(entry, key, state);
+  }
+  return { value: visit(value), fields: [...state.fields].filter(Boolean), anonymized: true };
 }
 
 function pythonLiteral(value, depth = 0) {
@@ -117,14 +145,15 @@ function pythonLiteral(value, depth = 0) {
   return JSON.stringify(String(value));
 }
 
-export function generateFixtureContent(payload, { format = "json", name = "apiFixture", method = "GET", route = "/" } = {}) {
-  const safe = safeFixtureValue(payload);
+export function generateFixtureContent(payload, { format = "json", name = "apiFixture", method = "GET", route = "/", preserveFields = [] } = {}) {
+  const privacy = anonymizeFixtureData(payload, { preserveFields });
+  const safe = privacy.value;
   const json = JSON.stringify(safe, null, 2);
   const identifier = String(name || "apiFixture").replace(/[^A-Za-z0-9_$]/g, "_").replace(/^[^A-Za-z_$]/, "_$&");
-  if (format === "typescript") return { content: `export const ${identifier} = ${json} as const;\n`, extension: "ts" };
-  if (format === "msw") return { content: `import { http, HttpResponse } from "msw";\n\nexport const ${identifier}Handler = http.${String(method).toLowerCase()}("${normalizeRoute(route)}", () => HttpResponse.json(${json}));\n`, extension: "ts" };
-  if (format === "pytest") return { content: `${identifier} = ${pythonLiteral(safe)}\n`, extension: "py" };
-  return { content: `${json}\n`, extension: "json" };
+  if (format === "typescript") return { content: `export const ${identifier} = ${json} as const;\n`, extension: "ts", privacy };
+  if (format === "msw") return { content: `import { http, HttpResponse } from "msw";\n\nexport const ${identifier}Handler = http.${String(method).toLowerCase()}("${normalizeRoute(route)}", () => HttpResponse.json(${json}));\n`, extension: "ts", privacy };
+  if (format === "pytest") return { content: `${identifier} = ${pythonLiteral(safe)}\n`, extension: "py", privacy };
+  return { content: `${json}\n`, extension: "json", privacy };
 }
 
 function uniqueIssues(items) {

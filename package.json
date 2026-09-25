@@ -1,6 +1,6 @@
 {
   "name": "@vmise/aipi-companion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "AIPI local companion and MCP server for AI-powered API intelligence.",
   "repository": {
     "type": "git",
@@ -44,7 +44,10 @@
     "observe": "node packages/cli/bin/api-forge.mjs observe",
     "guard": "node packages/cli/bin/api-forge.mjs guard",
     "cli": "node packages/cli/bin/api-forge.mjs",
-    "test": "node scripts/self-test.mjs && tsx scripts/cloud-smoke.ts",
+    "test": "npm run test:regression && npm run test:integration && npm run test:cloud",
+    "test:regression": "node scripts/regression-test.mjs",
+    "test:integration": "node scripts/self-test.mjs",
+    "test:cloud": "node --experimental-strip-types scripts/cloud-smoke.mjs",
     "validate": "node scripts/validate-project.mjs"
   },
   "license": "MIT",

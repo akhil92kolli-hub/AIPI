@@ -34,7 +34,7 @@ const server = http.createServer(async (req, res) => {
 });
 try {
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
-  const env = { ...process.env, AIPI_PORT: String(server.address().port) };
+  const env = { ...process.env, AIPI_PORT: String(server.address().port), AIPI_TOKEN: "test-only", AIPI_APP_URL: "https://aipi.website/dashboard/" };
   for (let attempt = 0; attempt < 2; attempt++) {
     const { stdout } = await exec(process.execPath, [cli, "init", "--root", root, "--no-open"], { env });
     assert.match(stdout, /https:\/\/aipi.website\/dashboard\/#port=.*project=test-project/);

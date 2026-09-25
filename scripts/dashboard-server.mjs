@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 import { addHistory, defaultProject, defaultRequest, loadState, mutateState, newId, publicState, variablesFor } from "./workspace-store.mjs";
 import { captureGitEvidence } from "../packages/core/git-evidence.mjs";
 import { appendTimelineEvent, timelineForProject, workspaceChangeEvent } from "../packages/core/timeline.mjs";
+import { preserveRedactedStateSecrets } from "../packages/core/secret-vault.mjs";
+import { discoverRouteHandlers } from "../packages/contract-engine/route-adapters.mjs";
+import { incrementalSourceIndex } from "../packages/contract-engine/incremental-index.mjs";
+import { normalizeOtelTraces, summarizeOtelBatch } from "../packages/local-observer/otel.mjs";
+import { startPairingClient } from "../packages/local-observer/pairing-client.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const UI_DIR = path.join(ROOT, "ui");
@@ -15,7 +20,9 @@ function basePort() { return Number(process.env.AIPI_PORT || process.env.API_FOR
 function maxPort() { return Number(process.env.AIPI_MAX_PORT || basePort() + 8); }
 let dashboardUrl = `http://${HOST}:${basePort()}`;
 const sessionToken = process.env.AIPI_TOKEN || `sec_${crypto.randomBytes(18).toString("base64url")}`;
-const allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim()).filter(Boolean));
+const allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://www.aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim().replace(/\/$/, "")).filter(Boolean));
+let outboundPairing = null;
+let outboundPairingStatus = { status: "offline" };
 
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json; charset=utf-8" };
 
@@ -319,37 +326,15 @@ function detectFromFile(file, root, text) {
     try {
       const pkg = JSON.parse(text);
       const dependencies = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
-      for (const [dependency, framework] of [["next", "Next.js"], ["express", "Express"], ["@supabase/supabase-js", "Supabase"], ["fastify", "Fastify"], ["axios", "Axios"], ["vitest", "Vitest"], ["playwright", "Playwright"]]) {
+      for (const [dependency, framework] of [["next", "Next.js"], ["express", "Express"], ["hono", "Hono"], ["fastify", "Fastify"], ["@supabase/supabase-js", "Supabase"], ["@opentelemetry/api", "OpenTelemetry"], ["axios", "Axios"], ["vitest", "Vitest"], ["playwright", "Playwright"]]) {
         if (dependencies[dependency]) frameworks.add(framework);
       }
     } catch {}
   }
 
-  const nextRoute = relative.match(/(?:^|\/)app\/api\/(.+)\/route\.(?:js|jsx|ts|tsx)$/);
-  if (nextRoute) {
-    frameworks.add("Next.js");
-    const route = `/api/${nextRoute[1].replace(/\[([^\]]+)\]/g, ":$1")}`;
-    for (const match of text.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)) {
-      endpoints.push({ id: newId("ep"), method: match[1], path: route, source: relative, line: lineFor(text, match.index), framework: "Next.js", confidence: .98 });
-    }
-  }
-
-  for (const entry of recordMatches(/(?:app|router)\.(get|post|put|patch|delete|head|options)\s*\(\s*["'`]([^"'`]+)["'`]/gi, text, (match) => ({
-    id: newId("ep"), method: match[1].toUpperCase(), path: match[2], source: relative,
-    line: lineFor(text, match.index), framework: "Express", confidence: .96
-  }))) endpoints.push(entry);
-  if (endpoints.some((entry) => entry.framework === "Express")) frameworks.add("Express");
-
-  for (const entry of recordMatches(/@(?:app|router)\.(get|post|put|patch|delete)\s*\(\s*["']([^"']+)["']/gi, text, (match) => ({
-    id: newId("ep"), method: match[1].toUpperCase(), path: match[2], source: relative,
-    line: lineFor(text, match.index), framework: "FastAPI", confidence: .96
-  }))) endpoints.push(entry);
-  if (endpoints.some((entry) => entry.framework === "FastAPI")) frameworks.add("FastAPI");
-
-  const edgeFunction = relative.match(/(?:^|\/)supabase\/functions\/([^/]+)\/(?:index|main)\.(?:js|ts)$/);
-  if (edgeFunction) {
-    frameworks.add("Supabase Edge Functions");
-    endpoints.push({ id: newId("ep"), method: "POST", path: `/functions/v1/${edgeFunction[1]}`, source: relative, line: 1, framework: "Supabase Edge Functions", confidence: .82 });
+  for (const route of discoverRouteHandlers({ file: relative, text })) {
+    endpoints.push({ id: newId("ep"), method: route.method, path: route.route, source: relative, line: route.line, framework: route.framework, adapter: route.adapter, confidence: route.confidence });
+    frameworks.add(route.framework);
   }
 
   for (const match of text.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/g)) {
@@ -407,14 +392,17 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
   const schemas = [];
   const frameworks = new Set();
   let filesScanned = 0;
+  const indexing = { parsed: 0, cacheHits: 0, contentHits: 0, removed: 0, skippedLarge: 0, unreadable: 0 };
   for (const root of roots) {
     const files = await collectSourceFiles(root.path);
     filesScanned += files.length;
-    for (const file of files) {
-      let text;
-      try { text = await fs.readFile(file, "utf8"); } catch { continue; }
-      if (text.length > 2_000_000) continue;
-      const detected = detectFromFile(file, root.path, text);
+    const indexed = await incrementalSourceIndex({
+      root: root.path,
+      files,
+      detect: (file, text) => detectFromFile(file, root.path, text),
+    });
+    for (const key of Object.keys(indexing)) indexing[key] += indexed.metrics[key] ?? 0;
+    for (const detected of indexed.results) {
       detected.endpoints.forEach((entry) => endpoints.push({ ...entry, root: root.path }));
       detected.frontendCalls.forEach((entry) => frontendCalls.push({ ...entry, root: root.path }));
       detected.schemas.forEach((entry) => schemas.push({ ...entry, root: root.path }));
@@ -428,7 +416,7 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
     integrationId: entry.id
   }));
   const git = await Promise.all(roots.map(async (root) => ({ ...(await captureGitEvidence(root.path)), requestedRoot: root.path })));
-  const scan = { roots, git, scanStatus: "complete", lastScannedAt: new Date().toISOString(), filesScanned, frameworks: [...frameworks], endpoints, frontendCalls, integrations, schemas, findings };
+  const scan = { roots, git, scanStatus: "complete", lastScannedAt: new Date().toISOString(), filesScanned, indexing, frameworks: [...frameworks], endpoints, frontendCalls, integrations, schemas, findings };
   await mutateState((state) => {
     const project = state.projects.find((entry) => entry.id === projectId);
     if (!project) throw new Error("Project not found");
@@ -438,22 +426,23 @@ export async function scanProjectSource(projectId, requestedRoots = []) {
     project.updatedAt = new Date().toISOString();
     project.summary = {
       ...(project.summary ?? {}), libraries: [...frameworks],
-      iterations: [...(project.summary?.iterations ?? []), { at: scan.lastScannedAt, label: `Scanned ${filesScanned} source files` }].slice(-20)
+      iterations: [...(project.summary?.iterations ?? []), { at: scan.lastScannedAt, label: `Indexed ${indexing.parsed} changed files (${indexing.cacheHits + indexing.contentHits} reused)` }].slice(-20)
     };
     appendTimelineEvent(state, {
       projectId: project.id, createdAt: scan.lastScannedAt, type: "scan", severity: findings.some((entry) => entry.severity === "high") ? "warning" : "success", actor: "aipi",
       title: "Source intelligence refreshed",
       summary: `Scanned ${filesScanned} files, mapped ${endpoints.length} backend APIs to ${frontendCalls.length} frontend calls, and found ${findings.length} integration issue${findings.length === 1 ? "" : "s"}.`,
       tags: [...frameworks].slice(0, 6), source: { kind: "source-scan", roots: roots.map((entry) => entry.path) },
-      evidence: { filesScanned, endpoints: endpoints.length, frontendCalls: frontendCalls.length, schemas: schemas.length, integrations: integrations.length, findings: findings.length, newEndpoints: discovered.map((entry) => `${entry.method} ${entry.path}`).slice(0, 25), git: git.map((entry) => ({ root: entry.requestedRoot, commit: entry.commit, branch: entry.branch, dirty: entry.dirty })) }
+      evidence: { filesScanned, indexing, endpoints: endpoints.length, frontendCalls: frontendCalls.length, schemas: schemas.length, integrations: integrations.length, findings: findings.length, newEndpoints: discovered.map((entry) => `${entry.method} ${entry.path}`).slice(0, 25), git: git.map((entry) => ({ root: entry.requestedRoot, commit: entry.commit, branch: entry.branch, dirty: entry.dirty })) }
     });
   });
   return scan;
 }
 
 function corsOrigin(origin) {
-  if (origin?.startsWith("http://127.0.0.1:") || origin?.startsWith("http://localhost:")) return origin;
-  return allowedOrigins.has(origin) ? origin : [...allowedOrigins][0] || "https://aipi.website";
+  if (!origin) return null;
+  const normalized = origin.replace(/\/$/, "");
+  return normalized === dashboardUrl || allowedOrigins.has(normalized) ? normalized : null;
 }
 
 async function listenOnAvailablePort(server) {
@@ -485,7 +474,9 @@ async function listenOnAvailablePort(server) {
 export async function startDashboard({ executeRequest, callTool } = {}) {
   const server = http.createServer(async (request, response) => {
     const origin = request.headers.origin;
-    response.setHeader("access-control-allow-origin", corsOrigin(origin));
+    const allowedOrigin = corsOrigin(origin);
+    if (origin && !allowedOrigin) return json(response, 403, { error: "Origin is not paired with this AIPI companion" });
+    if (allowedOrigin) response.setHeader("access-control-allow-origin", allowedOrigin);
     response.setHeader("access-control-allow-headers", "authorization, content-type");
     response.setHeader("access-control-allow-methods", "GET, POST, PUT, OPTIONS");
     response.setHeader("access-control-allow-private-network", "true");
@@ -497,8 +488,39 @@ export async function startDashboard({ executeRequest, callTool } = {}) {
     }
     const url = new URL(request.url, dashboardUrl);
     try {
-      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? basePort(), token: sessionToken, companion: "local", protocol: "http-loopback" });
-      if (url.pathname.startsWith("/api/") && url.pathname !== "/api/connection" && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
+      if (url.pathname.startsWith("/api/") && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
+      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? basePort(), companion: "local", protocol: "http-loopback", pairing: outboundPairingStatus });
+      if (request.method === "POST" && url.pathname === "/api/pairing/connect") {
+        const payload = await bodyJson(request);
+        if (!/^wss:\/\//.test(String(payload.websocketUrl ?? ""))) return json(response, 400, { error: "Pairing requires a secure WebSocket relay URL" });
+        outboundPairing?.close();
+        outboundPairingStatus = { status: "connecting", sessionId: payload.sessionId, expiresAt: payload.expiresAt };
+        outboundPairing = startPairingClient({
+          websocketUrl: payload.websocketUrl,
+          secret: payload.secret,
+          localUrl: dashboardUrl,
+          localToken: sessionToken,
+          onStatus: (next) => { outboundPairingStatus = { ...outboundPairingStatus, ...next }; },
+        });
+        return json(response, 202, { accepted: true, pairing: outboundPairingStatus });
+      }
+      if (request.method === "POST" && url.pathname === "/api/otel/v1/traces") {
+        if (!/application\/json/i.test(request.headers["content-type"] ?? "")) return json(response, 415, { error: "AIPI currently accepts OTLP/HTTP JSON traces. Configure OTEL_EXPORTER_OTLP_PROTOCOL=http/json." });
+        const spans = normalizeOtelTraces(await bodyJson(request));
+        if (!spans.length) return json(response, 400, { error: "No OTLP spans were found in the request." });
+        let projectId = null;
+        await mutateState((state) => {
+          const project = state.projects.find((entry) => entry.id === state.activeProjectId) ?? state.projects[0];
+          if (!project) return state;
+          projectId = project.id;
+          project.sourceContext ??= {};
+          project.sourceContext.runtimeTraces = [...spans, ...(project.sourceContext.runtimeTraces ?? [])].slice(0, 200);
+          const summary = summarizeOtelBatch(spans);
+          appendTimelineEvent(state, { projectId: project.id, type: "trace", severity: summary.failures ? "warning" : "info", actor: "local-observer", title: `Captured ${summary.spans} runtime span${summary.spans === 1 ? "" : "s"}`, summary: summary.routes.length ? summary.routes.join(", ") : "OTLP runtime evidence received.", tags: ["OpenTelemetry", ...summary.services].slice(0, 6), source: { kind: "otlp-http-json" }, evidence: summary });
+          return state;
+        });
+        return json(response, 202, { accepted: spans.length, projectId, summary: summarizeOtelBatch(spans) });
+      }
       if (request.method === "POST" && url.pathname === "/api/tools/call") {
         if (!callTool) return json(response, 503, { error: "AIPI tool relay is unavailable" });
         const payload = await bodyJson(request);
@@ -515,19 +537,24 @@ export async function startDashboard({ executeRequest, callTool } = {}) {
       if (request.method === "PUT" && url.pathname === "/api/state") {
         const incoming = await bodyJson(request);
         let recordedEvent = null;
+        let conflictState = null;
         await mutateState((state) => {
+          if (Number(incoming.revision) !== Number(state.revision)) {
+            conflictState = publicState(state);
+            return;
+          }
           const previous = structuredClone(state);
+          const merged = preserveRedactedStateSecrets(incoming, state);
           const timeline = state.timeline ?? [];
           state.version = Math.max(Number(incoming.version) || 1, 2);
-          state.activeProjectId = incoming.activeProjectId;
-          state.projects = incoming.projects ?? state.projects;
-          state.history = incoming.history ?? state.history;
-          state.activity = incoming.activity ?? state.activity;
+          state.activeProjectId = merged.activeProjectId;
+          state.projects = merged.projects ?? state.projects;
           state.timeline = timeline;
           const event = workspaceChangeEvent(previous, state);
           if (event) recordedEvent = appendTimelineEvent(state, event);
         });
-        return json(response, 200, { ok: true, event: recordedEvent });
+        if (conflictState) return json(response, 409, { error: "Workspace changed after this dashboard loaded", state: conflictState });
+        return json(response, 200, { ok: true, event: recordedEvent, state: publicState(await loadState()) });
       }
       if (request.method === "POST" && url.pathname === "/api/projects") {
         const payload = await bodyJson(request); const project = defaultProject(payload.name || "New project");

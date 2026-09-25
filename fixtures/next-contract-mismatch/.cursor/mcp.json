@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "aipi": {
+      "command": "aipi",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

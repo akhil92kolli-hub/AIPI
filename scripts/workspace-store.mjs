@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { hydrateStateSecrets, protectStateSecrets } from "../packages/core/secret-vault.mjs";
+import { hydrateStateSecrets, protectStateSecrets, redactStateSecrets } from "../packages/core/secret-vault.mjs";
 import { appendTimelineEvent, migrateTimeline } from "../packages/core/timeline.mjs";
 
 const DATA_DIR = (process.env.AIPI_DATA || process.env.API_FORGE_DATA) && (process.env.AIPI_DATA || process.env.API_FORGE_DATA) !== "${PLUGIN_DATA}"
@@ -10,6 +10,7 @@ const DATA_DIR = (process.env.AIPI_DATA || process.env.API_FORGE_DATA) && (proce
   : path.join(os.homedir(), ".api-forge");
 const DATA_FILE = path.join(DATA_DIR, "workspace.json");
 let saveQueue = Promise.resolve();
+let mutationQueue = Promise.resolve();
 
 export const newId = (prefix) => `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
@@ -67,7 +68,7 @@ function normalizeProject(project) {
 
 function initialState() {
   const project = defaultProject("Starter project");
-  const state = { version: 2, activeProjectId: project.id, projects: [project], history: [], activity: [], handoffs: [], timeline: [] };
+  const state = { version: 2, revision: 0, activeProjectId: project.id, projects: [project], history: [], activity: [], handoffs: [], timeline: [] };
   appendTimelineEvent(state, { projectId: project.id, type: "project", actor: "aipi", title: "Project created", summary: `${project.name} is ready for source discovery and API testing.`, tags: ["local"] });
   return state;
 }
@@ -83,6 +84,7 @@ export async function loadState() {
     state.handoffs ??= [];
     state.timeline = migrateTimeline(state);
     state.version = Math.max(Number(state.version) || 1, 2);
+    state.revision = Math.max(Number(state.revision) || 0, 0);
     return state;
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
@@ -105,10 +107,15 @@ export async function saveState(state) {
 }
 
 export async function mutateState(mutator) {
-  const state = await loadState();
-  const result = await mutator(state);
-  await saveState(state);
-  return result ?? state;
+  const operation = mutationQueue.catch(() => {}).then(async () => {
+    const state = await loadState();
+    const result = await mutator(state);
+    state.revision = Math.max(Number(state.revision) || 0, 0) + 1;
+    await saveState(state);
+    return result ?? state;
+  });
+  mutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export async function addHistory(entry) {
@@ -137,7 +144,7 @@ export function variablesFor(project, override = {}) {
 }
 
 export function publicState(state) {
-  return { ...state, timeline: (state.timeline ?? []).slice(0, 500) };
+  return redactStateSecrets({ ...state, timeline: (state.timeline ?? []).slice(0, 500) });
 }
 
 export { DATA_DIR, DATA_FILE };

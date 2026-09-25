@@ -42,6 +42,7 @@ export function formatHandoff({ handoff, project, log, context = {}, diagnosis =
     "- Do not make state-changing requests without explicit authorization.",
     "",
     "### Suggested MCP actions",
+    "- `analyze_and_repair_contract` (preferred bounded workflow)",
     "- `get_endpoint_context`",
     "- `diff_contract`",
     "- `check_blast_radius`",

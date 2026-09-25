@@ -21,18 +21,41 @@ function safeValue(value, key = "") {
   return value;
 }
 
+export function redactCapturedUrl(value) {
+  try {
+    const url = new URL(value);
+    for (const [key] of url.searchParams) if (isSecretName(key)) url.searchParams.set(key, "[REDACTED]");
+    return url.toString();
+  } catch { return String(value ?? ""); }
+}
+
+export function redactCapturedQuery(entries = {}) {
+  return safeValue(entries);
+}
+
 export function parseCapturedBody(buffer, contentType = "") {
   if (!buffer?.length) return null;
   const text = Buffer.from(buffer).subarray(0, MAX_CAPTURE_BYTES).toString("utf8");
   if (/json/i.test(contentType)) {
     try { return safeValue(JSON.parse(text)); } catch {}
   }
-  return text;
+  if (/application\/x-www-form-urlencoded/i.test(contentType)) return safeValue(Object.fromEntries(new URLSearchParams(text)));
+  if (/multipart\/form-data/i.test(contentType)) return `[MULTIPART BODY OMITTED: ${buffer.length} bytes]`;
+  if (/^(?:text\/|application\/(?:xml|javascript))/i.test(contentType)) {
+    return text
+      .replace(/\b(authorization|token|secret|password|passphrase|api.?key|cookie)\b\s*[:=]\s*([^\s&;,]+)/gi, "$1=[REDACTED]")
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]");
+  }
+  return `[BINARY BODY OMITTED: ${buffer.length} bytes]`;
 }
 
 export async function appendTraffic(root, record) {
   const target = trafficCachePath(root);
   await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  try {
+    const stats = await fs.stat(target);
+    if (stats.size >= 25_000_000) await fs.rename(target, `${target}.1`);
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
   await fs.appendFile(target, `${JSON.stringify({ version: 1, ...record })}\n`, { mode: 0o600 });
   return target;
 }
@@ -77,7 +100,7 @@ export async function startTrafficProxy({ target, root = process.cwd(), host = "
           id: `traffic_${crypto.randomUUID().replaceAll("-", "")}`,
           observedAt: new Date().toISOString(),
           durationMs: Date.now() - startedAt,
-          request: { method: request.method, url: destination.toString(), route: normalizeRoute(destination.pathname), headers: redactCapturedHeaders(request.headers), query: Object.fromEntries(destination.searchParams), body: parseCapturedBody(Buffer.concat(requestChunks), request.headers["content-type"]) },
+          request: { method: request.method, url: redactCapturedUrl(destination), route: normalizeRoute(destination.pathname), headers: redactCapturedHeaders(request.headers), query: redactCapturedQuery(Object.fromEntries(destination.searchParams)), body: parseCapturedBody(Buffer.concat(requestChunks), request.headers["content-type"]) },
           response: { status: proxyResponse.statusCode ?? null, headers: redactCapturedHeaders(proxyResponse.headers), body: parseCapturedBody(Buffer.concat(responseChunks), proxyResponse.headers["content-type"]) }
         }).catch(() => {});
       });
@@ -85,7 +108,7 @@ export async function startTrafficProxy({ target, root = process.cwd(), host = "
     proxyRequest.on("error", (error) => {
       response.writeHead(502, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "AIPI proxy could not reach the target" }));
-      void appendTraffic(root, { id: `traffic_${crypto.randomUUID().replaceAll("-", "")}`, observedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, request: { method: request.method, url: destination.toString(), headers: redactCapturedHeaders(request.headers) }, response: { status: null, error: error.message } }).catch(() => {});
+      void appendTraffic(root, { id: `traffic_${crypto.randomUUID().replaceAll("-", "")}`, observedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, request: { method: request.method, url: redactCapturedUrl(destination), headers: redactCapturedHeaders(request.headers) }, response: { status: null, error: error.message } }).catch(() => {});
     });
     request.pipe(proxyRequest);
   });

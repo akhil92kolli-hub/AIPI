@@ -1,9 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import Ajv from "ajv";
-import { normalizeRoute } from "../core/index.mjs";
+import { anonymizeFixtureData, normalizeRoute } from "../core/index.mjs";
 import { readTraffic } from "../local-observer/index.mjs";
 import { astFrontendPayload, astRouteInfo } from "./ast-index.mjs";
+import { findRouteHandler } from "./route-adapters.mjs";
+import { validationForHandler } from "./validation-adapters.mjs";
 
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".prisma"]);
 const IGNORED = new Set([".git", ".next", "node_modules", "dist", "build", "coverage", ".api-forge"]);
@@ -81,9 +83,18 @@ function parseTypedBodyFields(text) {
 }
 
 function routePattern(relative) {
-  const match = relative.replaceAll(path.sep, "/").match(/(?:^|\/)app\/api\/(.+)\/route\.(?:js|jsx|ts|tsx)$/);
-  if (!match) return null;
-  return `/api/${match[1].replace(/\[\.\.\.([^\]]+)\]/g, ":$1*").replace(/\[([^\]]+)\]/g, ":$1")}`;
+  const normalized = relative.replaceAll(path.sep, "/");
+  const next = normalized.match(/(?:^|\/)app\/api\/(.+)\/route\.(?:js|jsx|ts|tsx)$/);
+  if (next) return `/api/${next[1].replace(/\[\.\.\.([^\]]+)\]/g, ":$1*").replace(/\[([^\]]+)\]/g, ":$1")}`;
+  const edge = normalized.match(/(?:^|\/)supabase\/functions\/([^/]+)\/(?:index|main)\.(?:js|ts)$/);
+  return edge ? `/functions/v1/${edge[1]}` : null;
+}
+
+function genericNodeRoute(text, route, method) {
+  const quotedRoute = String(route).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const quotedMethod = String(method).toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const expression = new RegExp(`(?:request|req)\\.method\\s*===?\\s*['"]${quotedMethod}['"][\\s\\S]{0,240}?(?:pathname|url\\.pathname)\\s*===?\\s*['"]${quotedRoute}['"]|(?:pathname|url\\.pathname)\\s*===?\\s*['"]${quotedRoute}['"][\\s\\S]{0,240}?(?:request|req)\\.method\\s*===?\\s*['"]${quotedMethod}['"]`);
+  return expression.exec(text) ?? new RegExp(`(?:pathname|url\\.pathname)\\s*===?\\s*['"]${quotedRoute}['"]`).exec(text);
 }
 
 function matchesRoute(pattern, route) {
@@ -123,12 +134,10 @@ export async function traceNextRoute({ root = process.cwd(), url, method = "GET"
   const files = await walk(rootPath);
   for (const file of files) {
     const relative = path.relative(rootPath, file);
-    const pattern = routePattern(relative);
-    if (!pattern || !matchesRoute(pattern, route)) continue;
     const text = await fs.readFile(file, "utf8");
+    const routeHandler = findRouteHandler({ file: relative, text, url: route, method });
+    if (!routeHandler) continue;
     const ast = astRouteInfo({ file, text, method });
-    const fallbackHandler = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method.toUpperCase()}\\b`).exec(text);
-    if (!ast.handler && !fallbackHandler) continue;
     const schemas = ast.schemas.length ? ast.schemas : parseZodFields(text);
     const typedFields = parseTypedBodyFields(text);
     const databaseModels = [];
@@ -140,10 +149,11 @@ export async function traceNextRoute({ root = process.cwd(), url, method = "GET"
     }
     const resource = resourceName(route);
     const database = databaseModels.find((model) => model.name.toLowerCase().replace(/s$/, "") === resource) ?? databaseModels[0] ?? null;
-    const validation = schemas[0] ?? (typedFields.length ? { name: "requestBody", kind: "typescript", fields: typedFields } : null);
-    return { stack: "Next.js App Router", method: method.toUpperCase(), route: normalizeRoute(pattern), handler: { file: relative, line: ast.handler?.line ?? lineFor(text, fallbackHandler.index), export: method.toUpperCase(), parser: ast.handler ? ast.parser : "fallback" }, validation, database, confidence: validation ? .98 : .9 };
+    const fallbackValidation = schemas.length === 1 ? schemas[0] : (typedFields.length ? { name: "requestBody", kind: "typescript", fields: typedFields } : null);
+    const validation = validationForHandler({ text, handler: routeHandler, schemas, fallback: fallbackValidation });
+    return { stack: routeHandler.framework, adapter: routeHandler.adapter, method: method.toUpperCase(), route: routeHandler.route, handler: { file: relative, line: ast.handler?.line ?? routeHandler.line, export: routeHandler.export, parser: ast.handler ? ast.parser : routeHandler.parser }, validation, database, confidence: validation ? Math.max(routeHandler.confidence, .98) : routeHandler.confidence };
   }
-  return { stack: "Next.js App Router", method: method.toUpperCase(), route: normalizeRoute(route), handler: null, validation: null, database: null, confidence: 0 };
+  return { stack: "Unknown", method: method.toUpperCase(), route: normalizeRoute(route), handler: null, validation: null, database: null, confidence: 0 };
 }
 
 function typeFromExpression(expression, variables = {}) {
@@ -178,12 +188,21 @@ function compatible(frontend, backend) {
   if (frontend === backend) return true;
   if (frontend === "string" && backend === "uuid") return false;
   if (frontend === "number" && backend === "integer") return false;
-  return frontend === "unknown";
+  return false;
 }
 
 function fieldJsonSchema(field) {
+  const validator = String(field.validator ?? "");
   if (field.type === "uuid") return { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$" };
-  if (["string", "number", "integer", "boolean", "array", "object"].includes(field.type)) return { type: field.type };
+  if (["string", "number", "integer", "boolean", "array", "object"].includes(field.type)) {
+    const schema = { type: field.type };
+    const minimum = validator.match(/\.(?:min|gte)\s*\(\s*(-?\d+(?:\.\d+)?)/)?.[1];
+    const maximum = validator.match(/\.(?:max|lte)\s*\(\s*(-?\d+(?:\.\d+)?)/)?.[1];
+    if (minimum !== undefined) schema[field.type === "string" ? "minLength" : field.type === "array" ? "minItems" : "minimum"] = Number(minimum);
+    if (maximum !== undefined) schema[field.type === "string" ? "maxLength" : field.type === "array" ? "maxItems" : "maximum"] = Number(maximum);
+    if (field.type === "string" && /\.email\s*\(/.test(validator)) schema.format = "email";
+    return schema;
+  }
   if (field.type === "date") return { type: "string" };
   return {};
 }
@@ -194,14 +213,18 @@ export function validationJsonSchema(validation) {
     type: "object",
     properties: Object.fromEntries(fields.map((field) => [field.name, fieldJsonSchema(field)])),
     required: fields.filter((field) => field.required).map((field) => field.name),
-    additionalProperties: false,
+    additionalProperties: validation?.additionalProperties !== false,
   };
 }
 
 export function validatePayloadAgainstTrace(trace, payload) {
   if (!trace?.validation?.fields?.length) return { checked: false, valid: null, errors: [], schema: null };
   const schema = validationJsonSchema(trace.validation);
-  const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  const validate = new Ajv({
+    allErrors: true,
+    strict: false,
+    formats: { email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
+  }).compile(schema);
   const valid = validate(payload);
   return {
     checked: true,
@@ -228,15 +251,21 @@ export async function diffFrontendBackend({ root = process.cwd(), frontendFile, 
     else if (found && !compatible(found.type, field.type)) mismatches.push({ field: name, frontend: found.type, backend: field.type, issue: "type-mismatch" });
   }
   for (const [name, field] of actual) if (!expected.has(name)) mismatches.push({ field: name, frontend: field.type, backend: "not-accepted", issue: "unexpected-field" });
-  return { frontend: { file: frontendFile, route: frontend.route, method: frontend.method, fields: frontend.fields, parser: frontend.parser ?? "fallback" }, backend: { ...backend, jsonSchema: validationJsonSchema(backend.validation) }, mismatches };
+  const coverage = { frontendResolved: Boolean(frontend?.fields?.length), backendResolved: Boolean(backend.validation?.fields?.length), unknownFrontendFields: frontend.fields.filter((field) => field.type === "unknown").map((field) => field.name) };
+  return { status: coverage.frontendResolved && coverage.backendResolved && !coverage.unknownFrontendFields.length ? (mismatches.length ? "mismatch" : "aligned") : "unverified", coverage, frontend: { file: frontendFile, route: frontend.route, method: frontend.method, fields: frontend.fields, parser: frontend.parser ?? "fallback" }, backend: { ...backend, jsonSchema: validationJsonSchema(backend.validation) }, mismatches };
 }
 
 export async function generateObservedVitest({ root = process.cwd(), endpoint, method = "GET", name = "observed API contract" }) {
   const [observed] = await readTraffic(root, { route: endpoint, method, limit: 1 });
   if (!observed) throw new Error(`No observed ${method.toUpperCase()} traffic found for ${endpoint}`);
   const status = observed.response?.status ?? 200;
-  const body = observed.request?.body == null ? "" : `,\n      headers: { "content-type": "application/json" },\n      body: JSON.stringify(${JSON.stringify(observed.request.body, null, 2)})`;
-  return { observed, content: `import { describe, expect, it } from "vitest";\n\ndescribe(${JSON.stringify(name)}, () => {\n  it("locks the observed ${method.toUpperCase()} ${normalizeRoute(endpoint)} contract", async () => {\n    const response = await fetch(new URL(${JSON.stringify(normalizeRoute(endpoint))}, process.env.AIPI_BASE_URL || "http://localhost:3000"), {\n      method: ${JSON.stringify(method.toUpperCase())}${body}\n    });\n    expect(response.status).toBe(${status});\n  });\n});\n` };
+  if (status < 200 || status >= 400) throw new Error(`Refusing to generate a success regression test from observed HTTP ${status}`);
+  const requestBody = observed.request?.body == null ? null : anonymizeFixtureData(observed.request.body).value;
+  const body = requestBody == null ? "" : `,\n      headers: { "content-type": "application/json" },\n      body: JSON.stringify(${JSON.stringify(requestBody, null, 2)})`;
+  const responsePrivacy = anonymizeFixtureData(observed.response?.body);
+  const responseBody = responsePrivacy.value;
+  const responseAssertion = responseBody && typeof responseBody === "object" ? `\n    const payload = await response.json();\n    expect(payload).toMatchObject(${JSON.stringify(responseBody, null, 6)});` : "";
+  return { observed, privacy: { anonymized: true, fields: responsePrivacy.fields }, content: `import { describe, expect, it } from "vitest";\n\ndescribe(${JSON.stringify(name)}, () => {\n  it("locks the observed ${method.toUpperCase()} ${normalizeRoute(endpoint)} contract", async () => {\n    const response = await fetch(new URL(${JSON.stringify(normalizeRoute(endpoint))}, process.env.AIPI_BASE_URL || "http://localhost:3000"), {\n      method: ${JSON.stringify(method.toUpperCase())}${body}\n    });\n    expect(response.status).toBe(${status});${responseAssertion}\n  });\n});\n` };
 }
 
 export async function guardNextProject({ root = process.cwd() } = {}) {
@@ -256,5 +285,7 @@ export async function guardNextProject({ root = process.cwd() } = {}) {
     }
   }
   const mismatches = results.flatMap((entry) => entry.mismatches.map((mismatch) => ({ ...mismatch, frontendFile: entry.frontend.file, backendFile: entry.backend.handler.file, route: entry.backend.route, method: entry.backend.method })));
-  return { passed: mismatches.length === 0, checked: results.length, mismatches };
+  const verified = results.filter((entry) => entry.status !== "unverified").length;
+  const status = mismatches.length ? "failed" : verified ? "passed" : "unverified";
+  return { status, passed: status === "passed", checked: results.length, verified, mismatches, note: status === "unverified" ? "No supported frontend/backend contract pair was fully resolved." : null };
 }

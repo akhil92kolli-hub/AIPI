@@ -65,6 +65,18 @@ const tools = [
     },
     annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
   },
+  {
+    name: "list_contract_versions", title: "List contract versions",
+    description: "List immutable contract publications for one repository route.",
+    inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" }, repository: { type: "string" }, method: { type: "string" }, route: { type: "string" } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "list_registry_audit", title: "List registry audit events",
+    description: "List recent immutable contract publication events.",
+    inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
+  },
 ]
 
 function normalizeRoute(route: string) {
@@ -175,11 +187,12 @@ async function checkBlastRadius(request: Request, input: ContractInput) {
       }
     }
   }
+  const status = !baseline ? "unverified" : impacts.length ? "breaking" : "safe"
   return {
-    safe: impacts.length === 0, organizationId: proposed.organizationId, route: proposed.route,
+    status, safe: baseline ? impacts.length === 0 : null, organizationId: proposed.organizationId, route: proposed.route,
     method: proposed.method,
     baseline: baseline ? { repository: baseline.repository, revision: baseline.revision } : null,
-    changes, impacts,
+    changes, impacts, note: baseline ? null : "No registered provider baseline exists for this route.",
   }
 }
 
@@ -225,9 +238,23 @@ async function dispatch(request: Request, message: Record<string, unknown>) {
     const contracts = await listContracts(request, String(args.organizationId ?? ""))
     return toolResult({ contracts }, `${contracts.length} contract(s) registered.`)
   }
+  if (name === "list_contract_versions") {
+    const query = new URLSearchParams({ select: "id,organization_id,repository,method,route,revision,source_file,source_line,schema,consumers,content_hash,published_by,created_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.desc" })
+    if (args.repository) query.set("repository", `eq.${String(args.repository)}`)
+    if (args.method) query.set("method", `eq.${String(args.method).toUpperCase()}`)
+    if (args.route) query.set("route", `eq.${normalizeRoute(String(args.route))}`)
+    const versions = await dataApi(request, `api_contract_versions?${query}`) as unknown[]
+    return toolResult({ versions }, `${versions.length} immutable contract version(s) found.`)
+  }
+  if (name === "list_registry_audit") {
+    const limit = Math.max(1, Math.min(Number(args.limit ?? 100), 500))
+    const query = new URLSearchParams({ select: "id,event_type,repository,method,route,contract_version_id,actor_id,metadata,created_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.desc", limit: String(limit) })
+    const events = await dataApi(request, `registry_audit_events?${query}`) as unknown[]
+    return toolResult({ events }, `${events.length} registry audit event(s) found.`)
+  }
   if (name === "check_blast_radius") {
     const report = await checkBlastRadius(request, args as unknown as ContractInput)
-    const summary = report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n")
+    const summary = report.status === "unverified" ? report.note : report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n")
     return toolResult({ report }, summary)
   }
   return toolResult({ error: `Unknown tool: ${name}` }, `Unknown tool: ${name}`, true)

@@ -25,14 +25,24 @@ function zodType(expression) {
   return "unknown";
 }
 
+function zodObjectCall(initializer) {
+  let candidate = initializer;
+  while (Node.isCallExpression(candidate)) {
+    const callee = candidate.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) return null;
+    if (callee.getName() === "object" && callee.getExpression().getText() === "z") return candidate;
+    candidate = callee.getExpression();
+  }
+  return null;
+}
+
 function zodSchemas(sourceFile) {
   const schemas = [];
   for (const declaration of sourceFile.getVariableDeclarations()) {
     const initializer = declaration.getInitializer();
-    if (!Node.isCallExpression(initializer)) continue;
-    const callee = initializer.getExpression();
-    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== "object" || callee.getExpression().getText() !== "z") continue;
-    const shape = initializer.getArguments()[0];
+    const objectCall = zodObjectCall(initializer);
+    if (!objectCall) continue;
+    const shape = objectCall.getArguments()[0];
     if (!Node.isObjectLiteralExpression(shape)) continue;
     const fields = shape.getProperties().flatMap((property) => {
       if (!Node.isPropertyAssignment(property)) return [];
@@ -44,7 +54,7 @@ function zodSchemas(sourceFile) {
         validator,
       }];
     });
-    schemas.push({ name: declaration.getName(), kind: "zod", fields });
+    schemas.push({ name: declaration.getName(), kind: "zod", fields, additionalProperties: !/\.strict\s*\(/.test(initializer.getText()) });
   }
   return schemas;
 }
@@ -52,7 +62,10 @@ function zodSchemas(sourceFile) {
 export function astRouteInfo({ file, text, method }) {
   try {
     const sourceFile = projectFor(file, text);
-    const handler = sourceFile.getFunctions().find((candidate) => candidate.isExported() && candidate.getName() === String(method).toUpperCase());
+    const exportedMethod = String(method).toUpperCase();
+    const functionHandler = sourceFile.getFunctions().find((candidate) => candidate.isExported() && candidate.getName() === exportedMethod);
+    const variableHandler = sourceFile.getVariableDeclarations().find((candidate) => candidate.getName() === exportedMethod && candidate.getVariableStatement()?.isExported() && [SyntaxKind.ArrowFunction, SyntaxKind.FunctionExpression].includes(candidate.getInitializer()?.getKind()));
+    const handler = functionHandler ?? variableHandler;
     return {
       handler: handler ? { line: handler.getStartLineNumber(), export: String(method).toUpperCase() } : null,
       schemas: zodSchemas(sourceFile),
@@ -70,6 +83,15 @@ function stringValue(node) {
 
 function property(object, name) {
   return object?.getProperties().find((entry) => Node.isPropertyAssignment(entry) && entry.getName().replace(/^['"]|['"]$/g, "") === name);
+}
+
+function resolveObjectLiteral(sourceFile, node) {
+  if (Node.isObjectLiteralExpression(node)) return node;
+  if (!Node.isIdentifier(node)) return null;
+  const declaration = sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)
+    .filter((candidate) => candidate.getName() === node.getText() && candidate.getStart() < node.getStart())
+    .sort((left, right) => right.getStart() - left.getStart())[0];
+  return Node.isObjectLiteralExpression(declaration?.getInitializer()) ? declaration.getInitializer() : null;
 }
 
 function normalizedType(node) {
@@ -107,8 +129,8 @@ export function astFrontendPayload({ file, text, backendRoute, method }) {
     const bodyProperty = property(call.options, "body");
     const body = bodyProperty?.getInitializer();
     if (!Node.isCallExpression(body) || body.getExpression().getText() !== "JSON.stringify") return { route: call.route, method: call.method, fields: [], parser: "ts-morph" };
-    const payload = body.getArguments()[0];
-    if (!Node.isObjectLiteralExpression(payload)) return { route: call.route, method: call.method, fields: [], parser: "ts-morph" };
+    const payload = resolveObjectLiteral(sourceFile, body.getArguments()[0]);
+    if (!payload) return { route: call.route, method: call.method, fields: [], parser: "ts-morph" };
     const fields = payload.getProperties().flatMap((entry) => {
       if (Node.isShorthandPropertyAssignment(entry)) {
         const expression = entry.getNameNode();

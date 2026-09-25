@@ -1,0 +1,49 @@
+name: Cross-platform companion verification
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - api-forge
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic:
+    name: Deterministic checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:regression
+      - run: npm run build
+      - run: npm run validate
+
+  loopback-integration:
+    name: Loopback integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: deterministic
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:integration

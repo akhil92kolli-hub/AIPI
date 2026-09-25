@@ -6,7 +6,36 @@ import { z } from "zod";
 type Env = {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
+  PAIRING: {
+    idFromName(name: string): unknown;
+    get(id: unknown): { fetch(request: Request): Promise<Response> };
+  };
 };
+
+type PairSocket = WebSocket & {
+  serializeAttachment(value: unknown): void;
+  deserializeAttachment(): unknown;
+};
+
+declare const WebSocketPair: { new(): { 0: PairSocket; 1: PairSocket } };
+
+const PAIRING_TTL_MS = 10 * 60 * 1000;
+const PAIRING_MAX_MESSAGE_BYTES = 2_000_000;
+
+function randomSecret(prefix: string) {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return `${prefix}_${btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+}
+
+async function authenticatedUser(env: Env, request: Request) {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
+    headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY, authorization: authorization(request) },
+  });
+  if (!response.ok) throw new Error("A valid AIPI account session is required for cloud pairing");
+  const user = await response.json() as { id?: string };
+  if (!user.id) throw new Error("Authenticated AIPI user is missing an ID");
+  return user;
+}
 
 const fieldSchema = z.object({ name: z.string(), type: z.string(), required: z.boolean().default(true) });
 const contractSchema = z.object({
@@ -91,7 +120,8 @@ async function blastRadius(env: Env, request: Request | undefined, input: Contra
       message: `${change.field} ${change.kind.replaceAll("-", " ")} will break ${consumer.repository} (${consumer.file}:${consumer.line}).`,
     }] : [];
   })));
-  return { safe: impacts.length === 0, route: input.route, method: input.method, baseline, changes: contractChanges, impacts };
+  const status = !baseline ? "unverified" : impacts.length ? "breaking" : "safe";
+  return { status, safe: baseline ? impacts.length === 0 : null, route: input.route, method: input.method, baseline, changes: contractChanges, impacts, note: baseline ? null : "No registered provider baseline exists for this route." };
 }
 
 function result(data: Record<string, unknown>, text: string) {
@@ -127,6 +157,27 @@ function createServer(env: Env, request?: Request) {
     const contracts = await listContracts(env, request, organizationId);
     return result({ contracts }, `${contracts.length} contract(s) registered.`);
   });
+  server.registerTool("list_contract_versions", {
+    title: "List contract versions", description: "List immutable contract publications for one repository route.",
+    inputSchema: z.object({ organizationId: z.string().uuid(), repository: z.string().optional(), method: z.string().optional(), route: z.string().optional() }),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ organizationId, repository, method, route }) => {
+    const query = new URLSearchParams({ select: "id,organization_id,repository,method,route,revision,source_file,source_line,schema,consumers,content_hash,published_by,created_at", organization_id: `eq.${organizationId}`, order: "created_at.desc" });
+    if (repository) query.set("repository", `eq.${repository}`);
+    if (method) query.set("method", `eq.${method.toUpperCase()}`);
+    if (route) query.set("route", `eq.${route}`);
+    const versions = await dataApi(env, request, `api_contract_versions?${query}`) as unknown[];
+    return result({ versions }, `${versions.length} immutable contract version(s) found.`);
+  });
+  server.registerTool("list_registry_audit", {
+    title: "List registry audit events", description: "List recent immutable contract publication events.",
+    inputSchema: z.object({ organizationId: z.string().uuid(), limit: z.number().int().min(1).max(500).default(100) }),
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ organizationId, limit }) => {
+    const query = new URLSearchParams({ select: "id,event_type,repository,method,route,contract_version_id,actor_id,metadata,created_at", organization_id: `eq.${organizationId}`, order: "created_at.desc", limit: String(limit) });
+    const events = await dataApi(env, request, `registry_audit_events?${query}`) as unknown[];
+    return result({ events }, `${events.length} registry audit event(s) found.`);
+  });
   server.registerTool("check_blast_radius", {
     title: "Check cross-repository blast radius",
     description: "Report registered consumer repositories and exact source locations affected by a proposed contract.",
@@ -134,7 +185,7 @@ function createServer(env: Env, request?: Request) {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (contract) => {
     const report = await blastRadius(env, request, { ...contract, consumers: [] });
-    return result({ report }, report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n"));
+    return result({ report }, report.status === "unverified" ? report.note! : report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n"));
   });
   return server;
 }
@@ -143,6 +194,40 @@ let handler: McpHttpHandler | undefined;
 const app = new Hono<{ Bindings: Env }>();
 app.use("*", cors({ origin: "*", allowHeaders: ["authorization", "content-type", "mcp-protocol-version"] }));
 app.get("/healthz", (context) => context.json({ ok: true, service: "aipi-remote", protocol: ["2025-11-25", "2026-07-28"] }));
+app.post("/pair/sessions", async (context) => {
+  try {
+    const user = await authenticatedUser(context.env, context.req.raw);
+    const sessionId = crypto.randomUUID();
+    const companionSecret = randomSecret("cmp");
+    const dashboardSecret = randomSecret("dash");
+    const expiresAt = new Date(Date.now() + PAIRING_TTL_MS).toISOString();
+    const stub = context.env.PAIRING.get(context.env.PAIRING.idFromName(sessionId));
+    const configured = await stub.fetch(new Request("https://pairing.internal/configure", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId, userId: user.id, companionSecret, dashboardSecret, expiresAt }),
+    }));
+    if (!configured.ok) throw new Error("Pairing session could not be initialized");
+    const origin = new URL(context.req.url).origin.replace(/^http/, "ws");
+    return context.json({
+      sessionId,
+      websocketUrl: `${origin}/pair/${sessionId}/socket`,
+      companionSecret,
+      dashboardSecret,
+      expiresAt,
+      transport: "websocket-relay",
+      persistence: "none",
+    }, 201);
+  } catch (error) {
+    return context.json({ error: error instanceof Error ? error.message : "Pairing failed" }, 401);
+  }
+});
+app.get("/pair/:sessionId/socket", async (context) => {
+  if (context.req.header("upgrade")?.toLowerCase() !== "websocket") return context.json({ error: "WebSocket upgrade required" }, 426);
+  const sessionId = context.req.param("sessionId");
+  const stub = context.env.PAIRING.get(context.env.PAIRING.idFromName(sessionId));
+  return stub.fetch(context.req.raw);
+});
 app.all("/mcp", async (context) => {
   handler ??= createMcpHandler(({ requestInfo }) => createServer(context.env, requestInfo), {
     legacy: "stateless", responseMode: "auto", onerror: (error) => console.error("AIPI remote MCP:", error),
@@ -151,3 +236,76 @@ app.all("/mcp", async (context) => {
 });
 
 export default app;
+
+type PairState = {
+  storage: {
+    get<T>(key: string): Promise<T | undefined>;
+    put(key: string, value: unknown): Promise<void>;
+    setAlarm(timestamp: number): Promise<void>;
+    deleteAll(): Promise<void>;
+  };
+  acceptWebSocket(socket: PairSocket): void;
+  getWebSockets(tag?: string): PairSocket[];
+};
+
+async function secretHash(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export class PairingSession {
+  constructor(private state: PairState) {}
+
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/configure" && request.method === "POST") {
+      const input = await request.json() as { sessionId: string; userId: string; companionSecret: string; dashboardSecret: string; expiresAt: string };
+      const expiresAt = Date.parse(input.expiresAt);
+      if (!input.sessionId || !input.userId || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return new Response("Invalid session", { status: 400 });
+      await this.state.storage.put("session", {
+        sessionId: input.sessionId,
+        userId: input.userId,
+        companionHash: await secretHash(input.companionSecret),
+        dashboardHash: await secretHash(input.dashboardSecret),
+        expiresAt,
+      });
+      await this.state.storage.setAlarm(expiresAt);
+      return new Response(null, { status: 204 });
+    }
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket upgrade required", { status: 426 });
+    const session = await this.state.storage.get<{ companionHash: string; dashboardHash: string; expiresAt: number }>("session");
+    if (!session || session.expiresAt <= Date.now()) return new Response("Pairing session expired", { status: 410 });
+    const protocols = (request.headers.get("sec-websocket-protocol") ?? "").split(",").map((value) => value.trim());
+    const credential = protocols.find((value) => /^(companion|dashboard)\./.test(value));
+    const match = credential?.match(/^(companion|dashboard)\.(.+)$/);
+    if (!match) return new Response("Pairing credential required", { status: 401 });
+    const [, role, secret] = match;
+    const expected = role === "companion" ? session.companionHash : session.dashboardHash;
+    if (await secretHash(secret) !== expected) return new Response("Pairing credential rejected", { status: 403 });
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    server.serializeAttachment({ role });
+    this.state.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client, headers: { "sec-websocket-protocol": "aipi.pair.v1" } } as ResponseInit & { webSocket: WebSocket });
+  }
+
+  webSocketMessage(socket: PairSocket, message: string | ArrayBuffer) {
+    const attachment = socket.deserializeAttachment() as { role?: string } | null;
+    const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
+    if (raw.length > PAIRING_MAX_MESSAGE_BYTES) return socket.close(1009, "Message too large");
+    let parsed: { type?: string };
+    try { parsed = JSON.parse(raw); } catch { return socket.close(1007, "JSON required"); }
+    const allowedType = attachment?.role === "dashboard" ? "request" : "response";
+    if (parsed.type !== allowedType) return socket.close(1008, "Message role rejected");
+    const targetRole = attachment?.role === "dashboard" ? "companion" : "dashboard";
+    for (const target of this.state.getWebSockets()) {
+      if ((target.deserializeAttachment() as { role?: string } | null)?.role === targetRole) target.send(raw);
+    }
+  }
+
+  async alarm() {
+    for (const socket of this.state.getWebSockets()) socket.close(1000, "Pairing session expired");
+    await this.state.storage.deleteAll();
+  }
+}

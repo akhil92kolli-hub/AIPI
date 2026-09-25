@@ -1,5 +1,5 @@
 import { HttpRequestInterceptor } from "@mswjs/interceptors/http";
-import { appendTraffic, parseCapturedBody, redactCapturedHeaders } from "../packages/local-observer/index.mjs";
+import { appendTraffic, parseCapturedBody, redactCapturedHeaders, redactCapturedQuery, redactCapturedUrl } from "../packages/local-observer/index.mjs";
 
 const root = process.env.AIPI_OBSERVER_ROOT || process.cwd();
 const observeAll = process.env.AIPI_OBSERVER_ALL === "true";
@@ -13,6 +13,8 @@ function isAllowed(url) {
 
 async function capturedBody(message) {
   if (!message || ["GET", "HEAD"].includes(message.method)) return null;
+  const declaredLength = Number(message.headers.get("content-length") || 0);
+  if (declaredLength > 256_000) return `[BODY OMITTED: ${declaredLength} bytes]`;
   try {
     return parseCapturedBody(Buffer.from(await message.clone().arrayBuffer()), message.headers.get("content-type") || "");
   } catch {
@@ -29,9 +31,9 @@ interceptor.on("request", async ({ request, requestId }) => {
     startedAt: Date.now(),
     request: {
       method: request.method,
-      url: request.url,
+      url: redactCapturedUrl(request.url),
       route: url.pathname,
-      query: Object.fromEntries(url.searchParams),
+      query: redactCapturedQuery(Object.fromEntries(url.searchParams)),
       headers: redactCapturedHeaders(Object.fromEntries(request.headers)),
       body: await capturedBody(request),
     },
@@ -42,7 +44,7 @@ interceptor.on("response", async ({ response, request, requestId }) => {
   if (!isAllowed(request.url)) return;
   const observed = pending.get(requestId) ?? {
     startedAt: Date.now(),
-    request: { method: request.method, url: request.url, headers: redactCapturedHeaders(Object.fromEntries(request.headers)) },
+    request: { method: request.method, url: redactCapturedUrl(request.url), headers: redactCapturedHeaders(Object.fromEntries(request.headers)) },
   };
   pending.delete(requestId);
   await appendTraffic(root, {

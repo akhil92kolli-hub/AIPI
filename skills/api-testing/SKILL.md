@@ -16,6 +16,7 @@ AIPI combines a local inspection dashboard with MCP tools. Projects, environment
 - Use `run_collection` for dependent request sequences with extraction.
 - Use `get_history` and `diagnose_failure` to investigate saved runs.
 - Use `get_endpoint_context` and `list_integration_issues` before proposing cross-layer corrections.
+- Prefer `analyze_and_repair_contract` for the standard correction loop: retrieve a compact project summary, select one relevant saved endpoint, return bounded redacted evidence, prepare an editor-controlled correction, and verify only that endpoint after edits. This is the default token-efficient path.
 - Use `get_run_evidence`, `compare_runs`, and `create_fix_plan` for evidence-based diagnosis and review-before-mutation planning.
 - Use `trace_route(url, method, root)` first when the user names a route. For Next.js App Router projects its `ts-morph` adapter deterministically returns the handler, Zod/TypeScript request contract, and Prisma/Drizzle model. The legacy saved-request form can also run the lightweight local test hook; state-changing methods require `allow_state_change=true`.
 - Use `diff_contract(frontend_file, backend_route, method, root)` to compare a TypeScript-AST frontend fetch payload with the backend JSON Schema contract without sending traffic. Prefer its exact mismatch array over an inferred prose diagnosis.
@@ -53,6 +54,16 @@ When an Ask Codex follow-up includes a project ID, request ID, or log ID, use th
 6. Recommend a narrow next check. Separate backend problems, frontend corrections, and schema issues, and cite the source file, run ID, traffic record, schema object, or remote consumer location supporting each item.
 7. After a successful correction, generate a native fixture from observed evidence and run the project’s own verification command.
 8. Retry only when the method and failure are safe to retry or the user explicitly requested it. Prefer backoff for 408, 425, 429, 500, 502, 503, and 504.
+
+### Bounded contract workflow
+
+Use this sequence when a developer asks to diagnose or correct one API integration:
+
+1. Call `analyze_and_repair_contract` with `project_id` and, when known, `request_id` or `route`.
+2. Use its `projectSummary`, `endpoint`, `evidence`, `scope`, and `correction` fields; do not request entire source files or complete logs.
+3. Apply the smallest source change in the AI editor. AIPI returns plans and fixtures but does not silently rewrite application code.
+4. Call `analyze_and_repair_contract` again with `verify_after_changes=true`. State-changing methods additionally require `allow_state_change=true`.
+5. Report the affected route, before/after contract status, affected files, and `telemetry.estimatedTokens`. The verification scope must remain limited to the selected request and its related source evidence.
 
 ## Collection shape
 

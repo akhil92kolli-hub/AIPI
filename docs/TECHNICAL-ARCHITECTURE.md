@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Local runtime | TypeScript + Node.js 22 | Native fit for Next.js projects and compiler tooling. |
 | Local MCP | `@modelcontextprotocol/server` v2, stdio | Official stable SDK; negotiates both 2025 and 2026 MCP eras. |
-| Route and payload index | `ts-morph` | Reads exported route handlers, Zod object shapes, fetch calls, and TypeScript parameter types. |
+| Route and payload index | `ts-morph` + route-condition adapter | Reads exported route handlers, Zod object shapes, fetch calls, TypeScript parameter types, and common Node HTTP `pathname` branches. |
 | Runtime observer | `@mswjs/interceptors` plus explicit reverse proxy | Socket-level observation for Node clients; proxy remains available for browser traffic. |
 | Contract validation | normalized JSON Schema + AJV | Deterministic, machine-readable violations shared by tools and CI. |
 | Fixture generation | deterministic templates | Minimal output, stable diffs, and no repository mutation by the MCP tool. |
@@ -19,12 +19,17 @@ The user-facing plugin runs `scripts/aipi-mcp-bundle.mjs`, built from `src/local
 ## Deterministic evidence flow
 
 1. The observer records a bounded, redacted request and response locally.
-2. `trace_route` uses the Next.js filesystem route plus the TypeScript AST to locate the exported method, Zod request schema, and nearest Prisma/Drizzle model.
+2. `trace_route` uses supported filesystem routes plus the TypeScript AST to locate exported methods, common Node HTTP route conditions, Zod request schemas, and the nearest Prisma/Drizzle model.
 3. `diff_contract` compares the frontend AST payload with the normalized backend contract.
 4. AJV validates an observed or proposed payload and returns JSON Pointer paths and validation keywords.
 5. `run_local_diagnostic` correlates that contract evidence with the response and first stack location.
 6. `check_blast_radius` compares a proposed provider contract with registered cross-repository consumers.
 7. `generate_fixture` returns a native Vitest test to the editor only after runtime evidence exists.
+8. Every material result is appended to the local project timeline; agents retrieve bounded evidence with `get_project_timeline` instead of replaying full repository context.
+
+The Cloudflare-rendered dashboard and local execution boundary are specified in [CLOUD-LOCAL-DASHBOARD.md](./CLOUD-LOCAL-DASHBOARD.md).
+
+Runtime discovery is adapter-based. `packages/contract-engine/route-adapters.mjs` is the shared source of route evidence for both MCP tools and dashboard scans; framework-specific adapters must return the route, method, source line, confidence, and parser method. Applications with OpenTelemetry instrumentation can be launched through `aipi run -- <command>`, which injects an authenticated local OTLP/HTTP JSON endpoint. The companion stores only bounded route, code-location, service, status, and database-operation metadata; raw SQL statements and unrestricted span attributes are not persisted.
 
 ## Deliberate deferrals
 

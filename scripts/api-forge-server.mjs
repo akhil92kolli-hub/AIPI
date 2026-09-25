@@ -221,15 +221,15 @@ export const tools = [
   {
     name: "diff_contract",
     title: "Diff observed API contract",
-    description: "Deterministically compare a frontend fetch payload with a Next.js backend validation schema, or compare a saved run with the nearest database table. Returns exact field mismatches without changing files.",
+    description: "Deterministically compare a frontend fetch payload with a discovered backend validation schema, or compare a saved run with the nearest database table. Supports registered route adapters and returns exact field mismatches without changing files.",
     inputSchema: { type: "object", properties: { project_id: { type: "string" }, frontend_file: { type: "string" }, backend_route: { type: "string" }, method: { type: "string", enum: METHODS, default: "POST" }, root: { type: "string" }, log_id: { type: "string" }, schema_name: { type: "string", description: "Optional discovered table name for saved-run comparison." } }, additionalProperties: false },
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
     name: "generate_fixture",
     title: "Generate fixture from observed traffic",
-    description: "Generate a deterministic Vitest test from successfully observed local traffic, or create a redacted data fixture from a saved run. Returns content for the AI editor and does not write files.",
-    inputSchema: { type: "object", properties: { endpoint: { type: "string" }, method: { type: "string", enum: METHODS, default: "GET" }, root: { type: "string" }, test_framework: { type: "string", enum: ["vitest"], default: "vitest" }, log_id: { type: "string" }, format: { type: "string", enum: ["json", "typescript", "msw", "pytest"], default: "json" }, name: { type: "string" } }, additionalProperties: false },
+    description: "Generate a structurally anonymized Vitest test from successfully observed local traffic, or create a privacy-safe data fixture from a saved run. Returns content for the AI editor and does not write files.",
+    inputSchema: { type: "object", properties: { endpoint: { type: "string" }, method: { type: "string", enum: METHODS, default: "GET" }, root: { type: "string" }, test_framework: { type: "string", enum: ["vitest"], default: "vitest" }, log_id: { type: "string" }, format: { type: "string", enum: ["json", "typescript", "msw", "pytest"], default: "json" }, name: { type: "string" }, preserve_fields: { type: "array", items: { type: "string" }, description: "Explicit field names or dotted paths whose non-secret values must remain unchanged." } }, additionalProperties: false },
     annotations: { openWorldHint: false, readOnlyHint: true, destructiveHint: false, idempotentHint: true }
   },
   {
@@ -656,10 +656,27 @@ function requestSummary(result) {
   return `${result.name}: HTTP ${result.status} in ${result.elapsed_ms} ms; ${checks}${result.truncated ? "; response truncated" : ""}${failed ? `\n${failed}` : ""}`;
 }
 
+const MAX_TOOL_RESULT_BYTES = 120_000;
+function boundToolValue(value, depth = 0) {
+  if (depth >= 7) return "[BOUNDED]";
+  if (typeof value === "string") return value.length > 6_000 ? `${value.slice(0, 6_000)}…[TRUNCATED]` : value;
+  if (Array.isArray(value)) return value.slice(0, 100).map((entry) => boundToolValue(entry, depth + 1));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).slice(0, 120).map(([key, entry]) => [key, boundToolValue(entry, depth + 1)]));
+  return value;
+}
+
 function toolResult(data, summary, isError = false) {
+  const boundedData = boundToolValue(data);
+  const responseBytes = Buffer.byteLength(JSON.stringify(boundedData ?? {}), "utf8");
+  const transportData = responseBytes > MAX_TOOL_RESULT_BYTES
+    ? { bounded: true, originalResponseBytes: responseBytes, originalEstimatedTokens: Math.ceil(responseBytes / 4), summary }
+    : boundedData;
+  const structuredContent = transportData && typeof transportData === "object" && !Array.isArray(transportData)
+    ? { ...transportData, telemetry: { ...(transportData.telemetry ?? {}), responseBytes: Math.min(responseBytes, MAX_TOOL_RESULT_BYTES), estimatedTokens: Math.ceil(Math.min(responseBytes, MAX_TOOL_RESULT_BYTES) / 4), bounded: responseBytes > MAX_TOOL_RESULT_BYTES } }
+    : { value: transportData, telemetry: { responseBytes: Math.min(responseBytes, MAX_TOOL_RESULT_BYTES), estimatedTokens: Math.ceil(Math.min(responseBytes, MAX_TOOL_RESULT_BYTES) / 4), bounded: responseBytes > MAX_TOOL_RESULT_BYTES } };
   return {
-    content: [{ type: "text", text: summary }],
-    structuredContent: data,
+    content: [{ type: "text", text: `${summary}${responseBytes >= MAX_TOOL_RESULT_BYTES ? " Output was bounded for context safety." : ""}` }],
+    structuredContent,
     isError
   };
 }
@@ -673,7 +690,7 @@ export async function dashboardResource() {
   const safeJavascript = javascript.replaceAll("</script", "<\\/script");
   return html
     .replace('<link rel="stylesheet" href="/styles.css">', `<style>${css}</style>`)
-    .replace('<script type="module" src="/app.js"></script>', `<script>window.__API_FORGE_ORIGIN__=${JSON.stringify(dashboardRuntime.url)};<\/script><script type="module">${safeJavascript}<\/script>`);
+    .replace('<script type="module" src="/app.js"></script>', `<script>window.__API_FORGE_ORIGIN__=${JSON.stringify(dashboardRuntime.url)};window.__API_FORGE_TOKEN__=${JSON.stringify(dashboardRuntime.token)};<\/script><script type="module">${safeJavascript}<\/script>`);
 }
 
 function findProject(state, projectId) {
@@ -745,7 +762,7 @@ function responsePayload(result = {}) {
 
 function contractDiffFor(project, result, schemaName) {
   const schemas = schemaName ? (project.sourceContext?.schemas ?? []).filter((entry) => entry.name.toLowerCase() === String(schemaName).toLowerCase()) : project.sourceContext?.schemas ?? [];
-  return diffObservedContract(responsePayload(result), schemas, result.request?.url ?? "");
+  return diffObservedContract(responsePayload(result), schemas, result.request?.url ?? "", { minimumConfidence: schemaName ? 0 : .5 });
 }
 
 function redactedRun(log) {
@@ -889,8 +906,10 @@ export async function callTool(name, args) {
       const currentRun = await addHistory({ projectId: project.id, requestId: request.id, requestName: request.name, method: request.method, url: request.url, result: currentResult, verification: { originalRunId: latestRun.id, scope } });
       const comparison = compareRunEvidence(latestRun, currentRun);
       const baselineContract = latestRun.result?.contractDiff ?? contractDiffFor(project, latestRun.result ?? {});
-      const contractPassed = !currentResult.contractDiff || currentResult.contractDiff.status !== "drift";
-      result.verification = { runId: currentRun.id, passed: Boolean(currentResult.ok && currentResult.passed !== false && contractPassed), comparison, scope, contract: { before: baselineContract ? { status: baselineContract.status, schema: baselineContract.schema?.name ?? null } : null, after: currentResult.contractDiff ? { status: currentResult.contractDiff.status, schema: currentResult.contractDiff.schema?.name ?? null } : null, passed: contractPassed } };
+      const contractStatus = currentResult.contractDiff?.status ?? "unverified";
+      const contractPassed = contractStatus === "aligned";
+      const requestPassed = Boolean(currentResult.ok && currentResult.passed !== false);
+      result.verification = { runId: currentRun.id, outcome: !requestPassed ? "failed" : contractPassed ? "verified" : "unverified", passed: Boolean(requestPassed && contractPassed), requestPassed, comparison, scope, contract: { before: baselineContract ? { status: baselineContract.status, schema: baselineContract.schema?.name ?? null } : null, after: currentResult.contractDiff ? { status: currentResult.contractDiff.status, schema: currentResult.contractDiff.schema?.name ?? null } : null, passed: contractPassed } };
       result.evidence.currentRun = boundedRunEvidence(currentRun);
       result.telemetry = tokenTelemetry(result);
       await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "contract", severity: result.verification.passed ? "success" : "danger", actor: "aipi", title: result.verification.passed ? "Affected contract verified" : "Affected contract still failing", summary: `${request.method} ${request.url} verified against the saved baseline.`, tags: [request.method, result.verification.passed ? "verified" : "needs-work"], source: { kind: "bounded-contract-workflow", ref: currentRun.id, previousRef: latestRun.id, files: scope.files }, evidence: { comparison, estimatedTokens: result.telemetry?.estimatedTokens ?? null } }));
@@ -990,19 +1009,20 @@ export async function callTool(name, args) {
       try {
         const generated = await generateObservedVitest({ root: analysisRoot(null, args.root), endpoint: args.endpoint, method: args.method ?? "GET", name: args.name ?? "observed API contract" });
         const stem = normalizeRoute(args.endpoint).split("/").filter(Boolean).join("-") || "api";
-        return toolResult({ fixture: { format: "vitest", suggestedPath: `tests/${stem}.contract.test.ts`, content: generated.content, source: { trafficId: generated.observed.id, observedAt: generated.observed.observedAt }, writesFiles: false } }, `Generated a Vitest regression test from observed ${String(args.method ?? "GET").toUpperCase()} ${normalizeRoute(args.endpoint)} traffic. AIPI did not write files.`);
+        return toolResult({ fixture: { format: "vitest", suggestedPath: `tests/${stem}.contract.test.ts`, content: generated.content, privacy: generated.privacy, source: { trafficId: generated.observed.id, observedAt: generated.observed.observedAt }, writesFiles: false } }, `Generated an anonymized Vitest regression test from observed ${String(args.method ?? "GET").toUpperCase()} ${normalizeRoute(args.endpoint)} traffic. AIPI did not write files.`);
       } catch (error) { return toolResult({ error: error.message }, `Fixture generation failed: ${error.message}`, true); }
     }
     const state = await loadState();
     const log = state.history.find((entry) => entry.id === args?.log_id);
     if (!log) return toolResult({ error: "Run not found" }, "Run not found.", true);
+    if (Number(log.result?.status) >= 400 || log.result?.ok === false) return toolResult({ error: "The run was unsuccessful; AIPI will not turn a failure response into a regression fixture." }, `Fixture generation blocked for failed HTTP ${log.result?.status ?? "request"}. Diagnose or verify a successful response first.`, true);
     const payload = responsePayload(log.result ?? {});
     if (payload === undefined) return toolResult({ error: "The run has no JSON response to turn into a fixture" }, "The run has no JSON response to turn into a fixture.", true);
     const format = args?.format ?? "json";
     const stem = String(args?.name || log.requestName || "api-fixture").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "api-fixture";
-    const generated = generateFixtureContent(payload, { format, name: args?.name || "apiFixture", method: log.method, route: log.result?.request?.url ?? log.url });
-    const fixture = { format, suggestedPath: `fixtures/${stem}.${generated.extension}`, content: generated.content, source: { logId: log.id, projectId: log.projectId, status: log.result?.status ?? null, observedAt: log.createdAt }, writesFiles: false };
-    return toolResult({ fixture }, `Generated a redacted ${format} fixture from run ${log.id}. AIPI did not write files; the AI editor can save it to ${fixture.suggestedPath}.`);
+    const generated = generateFixtureContent(payload, { format, name: args?.name || "apiFixture", method: log.method, route: log.result?.request?.url ?? log.url, preserveFields: args?.preserve_fields ?? [] });
+    const fixture = { format, suggestedPath: `fixtures/${stem}.${generated.extension}`, content: generated.content, privacy: { anonymized: true, fields: generated.privacy.fields }, source: { logId: log.id, projectId: log.projectId, status: log.result?.status ?? null, observedAt: log.createdAt }, writesFiles: false };
+    return toolResult({ fixture }, `Generated an anonymized ${format} fixture from run ${log.id}. AIPI did not write files; the AI editor can save it to ${fixture.suggestedPath}.`);
   }
 
   if (name === "run_local_diagnostic") {
@@ -1025,7 +1045,8 @@ export async function callTool(name, args) {
   if (name === "check_blast_radius") {
     try {
       const report = await remoteBlastRadius(args);
-      return toolResult({ report }, report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n"));
+      const summary = report.status === "unverified" ? "Blast radius is unknown: no registered provider baseline exists for this route." : report.safe ? "No registered consumer breakages detected." : report.impacts.map((entry) => entry.message).join("\n");
+      return toolResult({ report }, summary, report.status === "unverified");
     } catch (error) { return toolResult({ error: error.message }, `Blast-radius check failed: ${error.message}`, true); }
   }
 
@@ -1055,7 +1076,7 @@ export async function callTool(name, args) {
     if (!original || !project || !request) return toolResult({ error: "Run, project, or saved request not found" }, "Correction workflow could not resolve the original run and saved request.", true);
     const plan = buildFixPlan(project, original, contextForLog(project, original));
     const freshness = await projectGitFreshness(project.sourceContext);
-    const payload = responsePayload(original.result ?? {});
+    const payload = Number(original.result?.status) >= 400 || original.result?.ok === false ? undefined : responsePayload(original.result ?? {});
     const generated = payload === undefined ? null : generateFixtureContent(payload, { format: "typescript", name: `${request.name}Fixture`, method: request.method, route: original.result?.request?.url ?? original.url });
     const bundle = {
       phase: args?.verify_after_changes ? "verification" : "ready-for-editor",
@@ -1075,13 +1096,16 @@ export async function callTool(name, args) {
     const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(request.method);
     if (unsafe && args?.allow_state_change !== true) return toolResult({ workflow: bundle, error: "State-changing verification requires allow_state_change=true" }, `Verification blocked: ${request.method} can change state. Obtain explicit authorization before rerunning.`, true);
     const result = await executeSaved(executeRequest, project, request, { maxAttempts: 1 });
+    result.contractDiff = contractDiffFor(project, result);
     const current = await addHistory({ projectId: project.id, requestId: request.id, requestName: request.name, method: request.method, url: request.url, result, verification: { originalRunId: original.id, git: freshness } });
     const comparison = compareRunEvidence(original, current);
     const refreshedState = await loadState();
     const refreshedProject = findProject(refreshedState, project.id);
     const issues = integrationIssues(refreshedProject, refreshedState.history);
-    bundle.phase = comparison.regression ? "regression" : comparison.recovered || (result.ok && result.passed !== false) ? "verified" : "still-failing";
-    bundle.verification = { runId: current.id, comparison, passed: Boolean(result.ok && result.passed !== false), status: result.status ?? null, openIssues: issues };
+    const requestPassed = Boolean(result.ok && result.passed !== false);
+    const contractStatus = result.contractDiff?.status ?? "unverified";
+    bundle.phase = comparison.regression ? "regression" : !requestPassed ? "still-failing" : contractStatus === "aligned" ? "verified" : "unverified";
+    bundle.verification = { runId: current.id, comparison, outcome: bundle.phase, passed: Boolean(requestPassed && contractStatus === "aligned"), requestPassed, contract: { status: contractStatus, verified: contractStatus === "aligned" }, status: result.status ?? null, openIssues: issues };
     await mutateState((currentState) => appendTimelineEvent(currentState, { projectId: project.id, type: "contract", severity: bundle.phase === "verified" ? "success" : bundle.phase === "regression" ? "danger" : "warning", actor: "aipi", title: bundle.phase === "verified" ? "Correction verified" : "Correction needs more work", summary: `Compared verification run ${current.id} with ${original.id}: ${bundle.phase}.`, tags: [bundle.phase, request.method], source: { kind: "correction-workflow", ref: current.id, previousRef: original.id }, evidence: { comparison, status: result.status ?? null, openIssueCount: issues.length } }));
     return toolResult({ workflow: bundle }, `${bundle.phase}: HTTP ${result.status ?? "error"}; ${comparison.recovered ? "the request recovered" : comparison.regression ? "a regression was detected" : "the new run was compared with the original"}.`, bundle.phase !== "verified");
   }

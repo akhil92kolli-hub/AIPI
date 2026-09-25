@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -18,8 +20,19 @@ export async function captureGitEvidence(root) {
       git(repositoryRoot, ["branch", "--show-current"]),
       git(repositoryRoot, ["status", "--porcelain=v1", "--untracked-files=normal"])
     ]);
-    const changedFiles = status.split("\n").filter(Boolean).map((line) => line.slice(3)).slice(0, 250);
-    return { available: true, root: repositoryRoot, commit, branch: branch || "detached", dirty: changedFiles.length > 0, changedFiles, capturedAt: new Date().toISOString() };
+    const changedFiles = status.split("\n").filter(Boolean).map((line) => line.slice(3).split(" -> ").at(-1)).slice(0, 250);
+    const fingerprints = [];
+    for (const relative of changedFiles) {
+      const target = path.resolve(repositoryRoot, relative);
+      try {
+        const stats = await fs.stat(target);
+        if (!stats.isFile()) continue;
+        const content = stats.size <= 2_000_000 ? await fs.readFile(target) : Buffer.from(`${stats.size}:${stats.mtimeMs}`);
+        fingerprints.push(`${relative}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+      } catch { fingerprints.push(`${relative}:deleted`); }
+    }
+    const workingTreeFingerprint = crypto.createHash("sha256").update([status, ...fingerprints].join("\n")).digest("hex");
+    return { available: true, root: repositoryRoot, commit, branch: branch || "detached", dirty: changedFiles.length > 0, changedFiles, workingTreeFingerprint, capturedAt: new Date().toISOString() };
   } catch {
     return { available: false, root: resolvedRoot, commit: null, branch: null, dirty: null, changedFiles: [], capturedAt: new Date().toISOString() };
   }
@@ -30,7 +43,10 @@ export function compareGitEvidence(baseline, current) {
   const commitChanged = baseline.commit !== current.commit;
   const baselineFiles = new Set(baseline.changedFiles ?? []);
   const currentFiles = new Set(current.changedFiles ?? []);
-  const workingTreeChanged = baselineFiles.size !== currentFiles.size || [...baselineFiles].some((file) => !currentFiles.has(file));
+  const fileSetChanged = baselineFiles.size !== currentFiles.size || [...baselineFiles].some((file) => !currentFiles.has(file));
+  const workingTreeChanged = baseline.workingTreeFingerprint && current.workingTreeFingerprint
+    ? baseline.workingTreeFingerprint !== current.workingTreeFingerprint
+    : fileSetChanged;
   return { status: commitChanged || workingTreeChanged ? "stale" : "current", stale: commitChanged || workingTreeChanged, commitChanged, workingTreeChanged, changedFiles: current.changedFiles ?? [], baselineCommit: baseline.commit, currentCommit: current.commit, branch: current.branch };
 }
 

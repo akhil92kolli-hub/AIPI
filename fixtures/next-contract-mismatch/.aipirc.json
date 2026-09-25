@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "next-contract-mismatch",
+  "root": "/Users/akhilkolli/Downloads/API-Forge/fixtures/next-contract-mismatch",
+  "roots": [
+    {
+      "kind": "database",
+      "path": "supabase"
+    },
+    {
+      "kind": "database",
+      "path": "prisma"
+    },
+    {
+      "kind": "tests",
+      "path": "tests"
+    }
+  ],
+  "mcp": {
+    "command": "aipi",
+    "args": [
+      "mcp"
+    ]
+  }
+}

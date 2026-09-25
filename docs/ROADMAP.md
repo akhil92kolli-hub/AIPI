@@ -23,15 +23,26 @@ Implemented:
 - `ts-morph` Next.js/Zod/frontend payload adapter with AJV validation
 - Hono/Cloudflare remote MCP worker and Supabase RLS contract registry
 - Cross-repository blast-radius tool and self-contained GitHub Action guard
+- Git-aware scan baselines and changed-since-verification reporting
+- Closed-loop `run_correction_workflow` evidence, fixture, rerun, and comparison orchestration
+- Deterministic Supabase Edge Function route and Zod validation tracing
+- Cross-platform credential storage using macOS Keychain, Linux Secret Service, or Windows Credential Manager, with opaque workspace references and no plaintext fallback
+- Project evidence timeline covering runs, scans, configuration changes, agent decisions, contract verification, security, and CI signals
+- Bounded `get_project_timeline` and redacted `record_project_event` MCP tools for token-efficient agent context
+- Cloud-rendered dashboard shell paired with a bearer-protected loopback companion and `aipi open`/`aipi mcp` CLI flows
+- Shared route-adapter registry used by MCP tracing and the dashboard for Next.js App Router, Supabase Edge Functions, Express, Hono, Fastify, FastAPI, and Node HTTP
+- Authenticated OTLP/HTTP JSON ingestion with `aipi run -- <command>` for framework-neutral runtime route, source, and database evidence
+- Structurally anonymized fixture and observed-test generation with explicit field preservation
+- Cross-platform deterministic and loopback integration CI on Linux, macOS, and Windows
+- Atomic daemon descriptors, stale-state recovery, startup locking, and `aipi status` / `aipi doctor` diagnostics
 
 In progress for 0.3:
 
 - Move the HTTP runner fully out of the prototype server into the shared runner package
 - Add cURL and Postman import
 - Add multipart and binary bodies
-- Add encrypted OS-backed secret storage
-- Track Git revisions and changed-since-verification status
-- Add AST adapters for Express and Supabase Edge Functions after the Next.js wedge
+- Add credential lifecycle cleanup and provider migration diagnostics
+- Expand validation extraction inside Express, Hono, Fastify, and FastAPI handlers
 - Add PostgreSQL migration and live-local-database schema adapters
 
 ## Next milestone slices

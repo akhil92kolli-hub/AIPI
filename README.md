@@ -55,7 +55,6 @@ Install and initialize the companion:
 ```bash
 cd /path/to/your/project
 npx @vmise/aipi-companion init
-npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
 For one-off execution, use:
@@ -64,20 +63,32 @@ For one-off execution, use:
 npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
 ```
 
-Register the local MCP server in the IDE:
+Setup configures project-local MCP connections for Codex, Cursor and VS Code, starts or reuses the companion, registers the source folder, and opens the project's cloud dashboard. Running the package without arguments performs the same setup. No global installation is needed. Reload your IDE after first setup and accept its project trust prompt if shown. Codex project configuration applies to trusted projects ([configuration documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
+
+For automation, `init --no-open` performs setup without launching a browser; `init --config-only` only writes configuration. Existing project settings and unrelated MCP entries are preserved. Plain `npm install` only downloads the package; use the command above to launch setup.
+
+The generated Cursor MCP entry looks like:
 
 ```json
 {
   "mcpServers": {
     "aipi": {
-      "command": "aipi",
-      "args": ["mcp"]
+      "command": "npx",
+      "args": ["-y", "@vmise/aipi-companion", "mcp", "--root", "/path/to/your/project"]
     }
   }
 }
 ```
 
 `aipi init` writes `.aipirc.json`, detects common source roots such as `apps/web`, `apps/api`, `prisma`, and `supabase`, and injects the AIPI MCP entry into local Cursor and VS Code config. `aipi daemon` owns the loopback server, while `aipi mcp` is a thin client: it reuses an existing daemon or starts one silently before serving MCP over stdio.
+
+Use `aipi status` for a quick connection check and `aipi doctor --root .` to verify the project and IDE configuration. To collect framework-neutral OpenTelemetry evidence while running a development process, use:
+
+```bash
+npx @vmise/aipi-companion run -- npm run dev
+```
+
+This starts or reuses the companion, selects the current project, and supplies an authenticated local OTLP/HTTP JSON endpoint to the child process. The application still needs its normal OpenTelemetry SDK or auto-instrumentation package; AIPI does not inject third-party instrumentation into source code.
 
 See the hosted [installation guide](https://aipi.website/install.html) for the cloud dashboard, pairing flow, data boundary, and troubleshooting model.
 
@@ -128,7 +139,7 @@ The prototype now includes shared packages for redaction and evidence, repositor
 packages/
 ├── core/               redaction, route normalization, run comparison, fix plans
 ├── collection-schema/  repository-native project/request serialization
-├── contract-engine/    Next.js + Zod route tracing and deterministic type diffs
+├── contract-engine/    Next.js, Node HTTP, Supabase + Zod tracing and deterministic diffs
 ├── integration-map/    endpoint context and issue model
 ├── local-observer/     redacted loopback request/response capture
 ├── remote-registry/    file/Supabase registry and blast-radius engine
@@ -216,13 +227,15 @@ AIPI requires Node.js 22 or later. Production dependencies are deliberately limi
 ```bash
 npm run validate
 npm run build
+npm run test:regression
+npm run test:integration
 npm test
 npm run benchmark:startup
 npm run demo:aipi
 npm run dashboard
 ```
 
-The self-test starts disposable local and remote APIs, captures traffic, traces the demo Next.js route, detects its Zod contract mismatch, diagnoses a runtime failure, generates a Vitest fixture, verifies cross-repository blast radius, exercises both MCP handshakes, loads the dashboard, and imports an OpenAPI document.
+The port-free regression test validates adapters, AST extraction, Zod constraints, traffic redaction, fixture anonymization, and honest unknown blast-radius status without opening a network socket. The integration test additionally starts disposable local and remote APIs, captures traffic, traces the demo route, detects its contract mismatch, diagnoses a runtime failure, generates a Vitest fixture, verifies cross-repository blast radius, exercises both MCP handshakes, loads the dashboard, and imports an OpenAPI document. GitHub Actions runs both layers independently on Linux, macOS, and Windows.
 
 Source scans now capture the Git commit, branch, working-tree state, and changed files for every configured root. Project summaries and verification tools report whether the current repository still matches the evidence baseline.
 

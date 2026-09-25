@@ -13,6 +13,8 @@ let heartbeatTimer;
 let bridgeRequestId = 1;
 const bridgeRequests = new Map();
 let localConnection = null;
+let pairingSocket = null;
+const pairingRequests = new Map();
 
 function localLaunchParams() {
   const query = new URLSearchParams(location.search);
@@ -21,44 +23,109 @@ function localLaunchParams() {
   const port = query.get("port") || hash.get("port");
   const token = query.get("token") || hash.get("token");
   const project = query.get("project") || hash.get("project");
+  const pair = query.get("pair") || hash.get("pair");
+  const relay = query.get("relay") || hash.get("relay");
+  const secret = query.get("secret") || hash.get("secret");
   const hasPort = port !== null && port !== "";
   const validPort = hasPort && /^\d{2,5}$/.test(port) && Number(port) > 0 && Number(port) <= 65535;
-  return { port, token, project, hasPort, validPort, launchHash: hash.size > 0 };
+  return { port, token, project, pair, relay, secret, hasPort, validPort, launchHash: hash.size > 0 };
 }
 
 function apiOrigin() {
   const params = localLaunchParams();
-  return window.__API_FORGE_ORIGIN__ ?? (params.validPort ? `http://127.0.0.1:${Number(params.port)}` : "");
+  return window.__API_FORGE_ORIGIN__ ?? localConnection?.origin ?? (params.validPort ? `http://127.0.0.1:${Number(params.port)}` : "");
 }
 
 async function api(path, options = {}) {
+  if (localConnection?.protocol === "websocket-relay") {
+    if (pairingSocket?.readyState !== WebSocket.OPEN) throw new Error("AIPI pairing relay is offline");
+    const id = crypto.randomUUID();
+    let body = options.body;
+    if (typeof body === "string") { try { body = JSON.parse(body); } catch {} }
+    const request = { type: "request", id, method: options.method ?? "GET", path, ...(body === undefined ? {} : { body }) };
+    pairingSocket.send(JSON.stringify(request));
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pairingRequests.delete(id); reject(new Error("Local companion did not answer through the pairing relay")); }, 15000);
+      pairingRequests.set(id, { resolve, reject, timer });
+    });
+  }
   const headers = { "content-type": "application/json", ...(options.headers ?? {}) };
   if (localConnection?.token) headers.authorization = `Bearer ${localConnection.token}`;
   const response = await fetch(`${apiOrigin()}${path}`, { headers, ...options });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(payload.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
   return payload;
+}
+
+async function connectPairingCompanion(params) {
+  let pairing = { pair: params.pair, relay: params.relay, secret: params.secret };
+  if (!pairing.pair || !pairing.relay || !pairing.secret) {
+    try { pairing = JSON.parse(sessionStorage.getItem("aipi:pairing") || "null") ?? pairing; } catch {}
+  }
+  if (!pairing.pair || !pairing.relay || !pairing.secret) throw new Error("This dashboard has no active local or cloud pairing session.");
+  const relayUrl = new URL(pairing.relay);
+  if (relayUrl.protocol !== "wss:") throw new Error("AIPI cloud pairing requires a secure WebSocket relay.");
+  pairingSocket = new WebSocket(relayUrl, ["aipi.pair.v1", `dashboard.${pairing.secret}`]);
+  pairingSocket.addEventListener("message", (event) => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type !== "response") return;
+    const pending = pairingRequests.get(message.id);
+    if (!pending) return;
+    pairingRequests.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.status >= 400) {
+      const error = new Error(message.body?.error || `HTTP ${message.status}`);
+      error.status = message.status;
+      error.payload = message.body;
+      pending.reject(error);
+    } else pending.resolve(message.body);
+  });
+  pairingSocket.addEventListener("close", () => {
+    localConnection = { ...(localConnection ?? {}), connected: false };
+    for (const pending of pairingRequests.values()) { clearTimeout(pending.timer); pending.reject(new Error("AIPI pairing relay closed")); }
+    pairingRequests.clear();
+  });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("AIPI pairing relay timed out")), 10000);
+    pairingSocket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+    pairingSocket.addEventListener("error", () => { clearTimeout(timer); reject(new Error("AIPI pairing relay could not connect")); }, { once: true });
+  });
+  localConnection = { connected: true, companion: "local", protocol: "websocket-relay", pairing };
+  try { sessionStorage.setItem("aipi:pairing", JSON.stringify(pairing)); } catch {}
+  const connection = await api("/api/connection");
+  localConnection = { ...localConnection, ...connection, protocol: "websocket-relay", pairing };
 }
 
 async function connectLocalCompanion() {
   const params = localLaunchParams();
+  if (!params.hasPort && (params.pair || params.relay || params.secret)) return connectPairingCompanion(params);
   if (params.hasPort && !params.validPort) throw new Error("The local companion port in this dashboard URL is invalid.");
   if (!apiOrigin()) throw new Error("Open AIPI with the local companion command so the dashboard receives a loopback port and session token.");
-  const suppliedToken = params.token;
+  const suppliedToken = params.token || window.__API_FORGE_TOKEN__;
+  const origin = params.validPort ? `http://127.0.0.1:${Number(params.port)}` : window.__API_FORGE_ORIGIN__;
   if (suppliedToken) {
-    localConnection = { connected: true, token: suppliedToken, companion: "local", port: params.port };
+    localConnection = { connected: true, token: suppliedToken, companion: "local", port: params.port, origin };
     try { sessionStorage.setItem("aipi:local-token", suppliedToken); } catch {}
+    try { if (origin) sessionStorage.setItem("aipi:local-origin", origin); } catch {}
   }
   if (!localConnection?.token) {
     try {
       const rememberedToken = sessionStorage.getItem("aipi:local-token");
-      if (rememberedToken) localConnection = { connected: true, token: rememberedToken, companion: "local" };
+      const rememberedOrigin = sessionStorage.getItem("aipi:local-origin");
+      if (rememberedToken && rememberedOrigin) localConnection = { connected: true, token: rememberedToken, companion: "local", origin: rememberedOrigin };
     } catch {}
   }
-  const response = await fetch(`${apiOrigin()}/api/connection`);
+  if (!localConnection?.token) throw new Error("This dashboard session has no local pairing token. Reopen it with `aipi open`.");
+  const response = await fetch(`${apiOrigin()}/api/connection`, { headers: { authorization: `Bearer ${localConnection.token}` } });
   const connection = await response.json();
   if (!response.ok) throw new Error(connection.error || `Companion connection failed (${response.status})`);
-  localConnection = { ...connection, token: localConnection?.token || connection.token };
+  localConnection = { ...connection, token: localConnection.token, origin: apiOrigin() };
   try { sessionStorage.setItem("aipi:local-token", localConnection.token); } catch {}
 }
 
@@ -118,12 +185,18 @@ function toast(message) {
 function startHeartbeat() {
   clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(async () => {
-    if (!apiOrigin()) return;
+    if (!apiOrigin() && localConnection?.protocol !== "websocket-relay") return;
     const wasConnected = localConnection?.connected;
     try {
-      const response = await fetch(`${apiOrigin()}/health`, { cache: "no-store" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await api("/health");
       localConnection = { ...(localConnection ?? {}), connected: true };
+      if (!saveTimer) {
+        const current = await api("/api/state");
+        if (Number(current.revision) > Number(state?.revision ?? 0)) {
+          state = current;
+          selectedProjectId = state.projects.some((entry) => entry.id === selectedProjectId) ? selectedProjectId : state.activeProjectId;
+        }
+      }
     } catch {
       localConnection = { ...(localConnection ?? {}), connected: false };
     }
@@ -139,6 +212,7 @@ function mergeRecordedEvent(result) {
 
 async function persistState() {
   const result = await api("/api/state", { method: "PUT", body: JSON.stringify(state) });
+  if (result.state) state = result.state;
   mergeRecordedEvent(result);
   return result;
 }
@@ -146,10 +220,18 @@ async function persistState() {
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    saveTimer = undefined;
     try {
       await persistState();
     }
-    catch (error) { toast(`Save failed: ${error.message}`); }
+    catch (error) {
+      if (error.status === 409 && error.payload?.state) {
+        state = error.payload.state;
+        selectedProjectId = state.activeProjectId;
+        render();
+        toast("Project changed in Codex. Refreshed before saving again.");
+      } else toast(`Save failed: ${error.message}`);
+    }
   }, 320);
 }
 
