@@ -20,7 +20,9 @@ function basePort() { return Number(process.env.AIPI_PORT || process.env.API_FOR
 function maxPort() { return Number(process.env.AIPI_MAX_PORT || basePort() + 8); }
 let dashboardUrl = `http://${HOST}:${basePort()}`;
 const sessionToken = process.env.AIPI_TOKEN || `sec_${crypto.randomBytes(18).toString("base64url")}`;
-const allowedOrigins = new Set(String(process.env.AIPI_APP_ORIGIN || "https://app.aipi.dev,https://aipi.website,https://www.aipi.website,https://aipi.ceo-935.workers.dev").split(",").map((origin) => origin.trim().replace(/\/$/, "")).filter(Boolean));
+const defaultAllowedOrigins = ["https://app.aipi.dev", "https://aipi.website", "https://www.aipi.website", "https://aipi.ceo-935.workers.dev"];
+const configuredOrigins = String(process.env.AIPI_APP_ORIGIN || "").split(",");
+const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredOrigins].map((origin) => origin.trim().replace(/\/$/, "")).filter(Boolean));
 let outboundPairing = null;
 let outboundPairingStatus = { status: "offline" };
 
@@ -489,7 +491,7 @@ export async function startDashboard({ executeRequest, callTool } = {}) {
     const url = new URL(request.url, dashboardUrl);
     try {
       if (url.pathname.startsWith("/api/") && request.headers.authorization !== `Bearer ${sessionToken}`) return json(response, 401, { error: "AIPI local session token is required" });
-      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? basePort(), companion: "local", protocol: "http-loopback", pairing: outboundPairingStatus });
+      if (request.method === "GET" && url.pathname === "/api/connection") return json(response, 200, { connected: true, host: HOST, port: server.address()?.port ?? basePort(), companion: "local", protocolVersion: 2, protocol: "http-loopback", pairing: outboundPairingStatus });
       if (request.method === "POST" && url.pathname === "/api/pairing/connect") {
         const payload = await bodyJson(request);
         if (!/^wss:\/\//.test(String(payload.websocketUrl ?? ""))) return json(response, 400, { error: "Pairing requires a secure WebSocket relay URL" });

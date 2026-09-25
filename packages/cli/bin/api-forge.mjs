@@ -29,6 +29,7 @@ function option(args, name, fallback) {
 
 const DEFAULT_PORT = 49152;
 const MAX_PORT = 49160;
+const DAEMON_PROTOCOL_VERSION = 2;
 const cliPath = fileURLToPath(import.meta.url);
 const connectionFile = process.env.AIPI_CONNECTION_FILE || path.join(os.homedir(), ".api-forge", "daemon.json");
 const daemonLock = `${connectionFile}.lock`;
@@ -40,10 +41,11 @@ async function exists(target) {
 
 async function findProjectRoot(start = ".") {
   let current = path.resolve(start);
+  const home = path.resolve(os.homedir());
   while (true) {
-    if (await exists(path.join(current, ".git")) || await exists(path.join(current, "package.json"))) return current;
+    if (current !== home && (await exists(path.join(current, ".git")) || await exists(path.join(current, "package.json")))) return current;
     const parent = path.dirname(current);
-    if (parent === current) return path.resolve(start);
+    if (parent === current) throw new Error(`No project root found from ${path.resolve(start)}. Run AIPI from your project directory or pass --root <project-path>.`);
     current = parent;
   }
 }
@@ -128,7 +130,7 @@ async function probeDaemon({ cleanupStale = true } = {}) {
     descriptorFound = true;
     if (saved?.url && saved?.token) {
       const connection = await fetchJson(`${saved.url}/api/connection`, { headers: { authorization: `Bearer ${saved.token}` } });
-      if (connection?.connected) return { ...connection, token: saved.token, url: saved.url };
+      if (connection?.connected && connection.protocolVersion === DAEMON_PROTOCOL_VERSION) return { ...connection, token: saved.token, url: saved.url };
     }
   } catch {}
   if (descriptorFound && cleanupStale) await removeConnectionDescriptor().catch(() => {});
@@ -138,7 +140,7 @@ async function probeDaemon({ cleanupStale = true } = {}) {
     const token = process.env.AIPI_TOKEN;
     if (!token) continue;
     const connection = await fetchJson(`http://127.0.0.1:${port}/api/connection`, { headers: { authorization: `Bearer ${token}` } });
-    if (connection?.connected) return { ...connection, token, url: `http://127.0.0.1:${connection.port || port}` };
+    if (connection?.connected && connection.protocolVersion === DAEMON_PROTOCOL_VERSION) return { ...connection, token, url: `http://127.0.0.1:${connection.port || port}` };
   }
   return null;
 }

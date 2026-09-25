@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const cli = path.resolve("scripts/aipi-cli-bundle.mjs");
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "aipi-setup-"));
+const emptyRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aipi-empty-"));
 await fs.writeFile(path.join(root, "package.json"), '{"name":"setup-example"}');
 await fs.mkdir(path.join(root, ".vscode"));
 await fs.writeFile(path.join(root, ".vscode/mcp.json"), JSON.stringify({ servers: { other: { command: "keep-me" } } }));
@@ -16,7 +17,7 @@ const projects = [];
 let creations = 0;
 const server = http.createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
-  if (req.url === "/api/connection") return res.end(JSON.stringify({ connected: true, token: "test-only", port: server.address().port }));
+  if (req.url === "/api/connection") return res.end(JSON.stringify({ connected: true, token: "test-only", port: server.address().port, protocolVersion: 2 }));
   assert.equal(req.headers.authorization, "Bearer test-only");
   let body = "";
   for await (const chunk of req) body += chunk;
@@ -47,8 +48,18 @@ try {
   assert.equal(vscode.servers.aipi.args.at(-1), root);
   const codex = await fs.readFile(path.join(root, ".codex/config.toml"), "utf8");
   assert.equal(codex.match(/\[mcp_servers.aipi\]/g).length, 1);
-  console.log("Setup smoke passed: registration, project selection, authenticated launch, repeat setup, config preservation.");
+  await assert.rejects(
+    exec(process.execPath, [cli, "init", "--root", emptyRoot, "--config-only"], { env }),
+    /No project root found/
+  );
+  await assert.rejects(
+    exec(process.execPath, [cli, "init", "--root", os.homedir(), "--config-only"], { env }),
+    /No project root found/
+  );
+  assert.equal(await fs.access(path.join(emptyRoot, ".aipirc.json")).then(() => true, () => false), false);
+  console.log("Setup smoke passed: registration, project selection, authenticated launch, repeat setup, config preservation, and safe project-root checks.");
 } finally {
   server.close();
   await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(emptyRoot, { recursive: true, force: true });
 }
