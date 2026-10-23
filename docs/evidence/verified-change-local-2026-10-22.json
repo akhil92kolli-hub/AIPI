@@ -1,0 +1,205 @@
+{
+  "scenario": "local verified change",
+  "testedAt": "2026-10-21T19:14:13.928Z",
+  "revisions": {
+    "orders": "bdfe070b098ae1bc803abcd533e25b060395437a",
+    "billing": "87569a797d6366c00c3a5f1b6b78e00c38ffaf6a",
+    "storefront": "f7d1108240d2c0eec150c3a31a1e04c25566480f"
+  },
+  "testedRevisions": {
+    "knownBad": "9ce22b8c47800036445506d95e4cbccd59cf86fc",
+    "repaired": "563fa0647d84cc4e6df24feae3fb9be9906e113a"
+  },
+  "environment": {
+    "node": "v22.15.1",
+    "python": "Python 3.13.3",
+    "pythonPackages": [
+      "fastapi==0.158.1",
+      "httpx==0.28.1",
+      "pydantic==2.14.1",
+      "pytest==9.1.1",
+      "uvicorn==0.54.0"
+    ],
+    "frontendPackages": {
+      "react-dom": "19.3.1",
+      "react": "19.3.1",
+      "tsx": "4.23.15"
+    }
+  },
+  "knownGood": {
+    "orders": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:4e8b6c5a89da44bf05d17100903172be04033067c113a6831bdfafbd42b7da52",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    },
+    "billing": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:4e8b6c5a89da44bf05d17100903172be04033067c113a6831bdfafbd42b7da52",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    },
+    "storefront": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:05a8d5ec5cda991f28a173a51a31615dd294ae6f8b84d3d2a06b48d61473b870",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    }
+  },
+  "broken": {
+    "orders": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:2836d6ca51345c90f0ae497ecfb1decbd4cc8406e4b103c41452fffa8f8355f2",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    },
+    "billing": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:a94a8f5461b984b7cdef3e45bd69c694c8f6030f710a046d28dd8bb750ca9ec6",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    },
+    "storefront": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:a4a8d598fc6ad7be08e49b3ffae29013989f0d2a515d56f7e8c67dbda17c8088",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    }
+  },
+  "brokenAssessment": {
+    "changedFiles": [
+      {
+        "status": "M",
+        "path": "app.py",
+        "previousPath": null,
+        "binary": false,
+        "addedLines": 1,
+        "removedLines": 1
+      }
+    ],
+    "affected": [
+      "orders",
+      "orders",
+      "storefront",
+      "billing"
+    ],
+    "ledger": "failed",
+    "billingCheckMissing": true,
+    "receiptIds": [
+      "assessment_receipt_e7dd2aa7-f55f-4c83-8157-6654fed82c35",
+      "assessment_receipt_a4c08e29-e010-4765-9ef4-a54ddb634cf2",
+      "assessment_receipt_262e4b2a-644a-4271-8d6a-a9a3595054be"
+    ],
+    "evidenceIds": [
+      "sha256:d756e934a505f50f11ffdca2a59e117561c9ade6ba20882f343357ee7fcdeb9b",
+      "sha256:c62b5e2c5f5c309491bfee7625d58dace2ef0f3b1aba005ffcb2789ea462c85d",
+      "sha256:50cc610cbf6175422b4c5a7a96f3c3296e56908aae25c3b391e29e5eab50e2f0"
+    ]
+  },
+  "repairedAssessment": {
+    "affected": [
+      "orders",
+      "orders",
+      "storefront",
+      "billing"
+    ],
+    "checkResults": [
+      {
+        "projectId": "billing",
+        "status": "passed"
+      },
+      {
+        "projectId": "orders",
+        "status": "passed"
+      },
+      {
+        "projectId": "orders",
+        "status": "passed"
+      },
+      {
+        "projectId": "storefront",
+        "status": "passed"
+      }
+    ],
+    "ledger": "unknown",
+    "complete": false,
+    "previousProofStale": true,
+    "receiptIds": [
+      "assessment_receipt_ac8575b4-460f-4a97-8c5f-72a352244977",
+      "assessment_receipt_48ab211f-e5b7-476a-a808-35a1898c2c81",
+      "assessment_receipt_656eccb2-b471-4245-a269-9a10dfeb1768",
+      "assessment_receipt_2e3beb9e-2488-4d6e-b0d1-3b224a8508a6"
+    ],
+    "evidenceIds": [
+      "sha256:ac9296dee46e8bab0e1165150dde129df6056b7bac26b32f1ebcd066d9ca0f57",
+      "sha256:b05f3c56f7f9e7e1e4cf67f9f9b1dc0c7c6fec9d34a98aee3ec6e68519870ade",
+      "sha256:13caf0b96be4302eda1b153af0606c768906cefa1a7063110e11d3b573bbd3ef",
+      "sha256:f87de03f3ad51e8efe8719c6d9eaa15307c7dc778d194b7e869f07d970338b24"
+    ]
+  },
+  "independentReproduction": {
+    "packageHashes": {
+      "knownBad": "sha256:7b8b395d1ded99829e656767ada8b801393804f49f7ee9a6da3d9f4cf02b2b14",
+      "repaired": "sha256:27a5d4e499be0003407e556f665a9765a938f2649e6a5667276d434e60aa1681"
+    },
+    "cleanSourcePackages": true,
+    "preflightReady": true,
+    "knownBadResults": [
+      {
+        "projectId": "billing",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "orders",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "orders",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "storefront",
+        "passed": false,
+        "exitCode": 1
+      }
+    ],
+    "repairedResults": [
+      {
+        "projectId": "billing",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "orders",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "orders",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "storefront",
+        "passed": true,
+        "exitCode": 0
+      }
+    ],
+    "runner": "fixture-initiated explicit execution of imported command arrays in separate Git clones and an independent Python environment"
+  },
+  "limitations": [
+    "Source associations and cross-project links are seeded from inspected fixture code.",
+    "Passing commands remain unproven for regression relevance in the product ledger.",
+    "Generated manifests and temporary Git repositories are removed after the run; this record alone cannot replay their commits.",
+    "Team synchronization, repository rights, an agent and PR evidence were not exercised."
+  ]
+}

@@ -1,0 +1,10 @@
+.vscode/**
+dist/**
+node_modules/**
+scripts/**
+media/index.html
+media/panel.js
+media/panel.css
+media/panel-layout.css
+media/panel-enhancements.css
+**/*.map

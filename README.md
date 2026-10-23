@@ -30,7 +30,7 @@ The implementation decisions, evidence pipeline, deferred adapters, and two-engi
 
 ## Dashboard
 
-Ask Codex to **open my AIPI dashboard**, run `aipi open`, or run `npm run dashboard` while developing the plugin. Open the returned loopback URL in Codex's browser panel and toggle that panel while coding. The Project, APIs, Map, and Logs routes include:
+Ask Codex to **open my AIPI workspace**. The installed plugin renders AIPI as an MCP App in Codex's toggleable side panel; no dashboard URL needs to be copied or opened. In VS Code and Cursor, select the AIPI Activity Bar view or use **AIPI: Open Workspace in Editor**. `aipi open` and `npm run dashboard` remain browser-only development fallbacks. The workspace includes:
 
 - Projects, requests, environments, and variables
 - Bearer, Basic, and API-key authentication
@@ -44,7 +44,7 @@ Ask Codex to **open my AIPI dashboard**, run `aipi open`, or run `npm run dashbo
 - Automatic recognition of common frontend calls, backend routes, database tables, and integration gaps
 - A living Project summary separating backend problems, frontend corrections, schema issues, evidence freshness, goals, tasks, and iteration history
 
-The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts or reuses the daemon, creates a short-lived session token, and opens the cloud dashboard with the local connection parameters. Visiting `/dashboard/` directly shows the shell only; use `aipi open` so the URL includes `#port=...&token=...`.
+The local companion binds only to `127.0.0.1` and defaults to `http://127.0.0.1:49152`. `aipi open` starts or reuses the daemon and opens an authenticated, same-origin local dashboard for the selected project. The hosted dashboard connects through the opt-in outbound pairing bridge instead of asking a public page to call browser loopback.
 
 ## Deployment and installation model
 
@@ -54,16 +54,16 @@ Install and initialize the companion:
 
 ```bash
 cd /path/to/your/project
-npx @vmise/aipi-companion init
+npx --yes --package=@vmise/aipi-companion@latest -- aipi init
 ```
 
 For one-off execution, use:
 
 ```bash
-npx @vmise/aipi-companion open --app https://aipi.website/dashboard/
+npx --yes --package=@vmise/aipi-companion@latest -- aipi open
 ```
 
-Setup configures project-local MCP connections for Codex, Cursor and VS Code, starts or reuses the companion, registers the source folder, and opens the project's cloud dashboard. Running the package without arguments performs the same setup. No global installation is needed. Reload your IDE after first setup and accept its project trust prompt if shown. Codex project configuration applies to trusted projects ([configuration documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
+Setup configures project-local MCP connections for Codex, Cursor and VS Code, starts or reuses the companion, registers the source folder, and opens the project's local dashboard. Running the package without arguments performs the same setup. No global installation is needed. Reload your IDE after first setup and accept its project trust prompt if shown. Codex project configuration applies to trusted projects ([configuration documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)).
 
 For automation, `init --no-open` performs setup without launching a browser; `init --config-only` only writes configuration. Existing project settings and unrelated MCP entries are preserved. Plain `npm install` only downloads the package; use the command above to launch setup.
 
@@ -85,16 +85,31 @@ The generated Cursor MCP entry looks like:
 Use `aipi status` for a quick connection check and `aipi doctor --root .` to verify the project and IDE configuration. To collect framework-neutral OpenTelemetry evidence while running a development process, use:
 
 ```bash
-npx @vmise/aipi-companion run -- npm run dev
+npx --yes --package=@vmise/aipi-companion@latest -- aipi run -- npm run dev
 ```
 
 This starts or reuses the companion, selects the current project, and supplies an authenticated local OTLP/HTTP JSON endpoint to the child process. The application still needs its normal OpenTelemetry SDK or auto-instrumentation package; AIPI does not inject third-party instrumentation into source code.
 
+When direct browser-to-loopback access is blocked, a configured AIPI remote Worker can provide a short-lived outbound pairing relay. Keep the access token out of shell history:
+
+```bash
+AIPI_ACCESS_TOKEN="..." npx --yes --package=@vmise/aipi-companion@latest -- aipi pair \
+  --relay https://your-aipi-remote-worker.example \
+  --app https://aipi.website/dashboard/
+```
+
+Pairing expires after ten minutes, uses different dashboard and companion secrets, relays only allowlisted dashboard operations, and does not expose MCP tool calls. The same-origin local dashboard remains the no-account default.
+
 See the hosted [installation guide](https://aipi.website/install.html) for the cloud dashboard, pairing flow, data boundary, and troubleshooting model.
+
+For a structured pre-release developer trial, use the [developer pilot guide](docs/DEVELOPER-PILOT.md). The [release checklist](docs/RELEASE-CHECKLIST.md) lists the security, database, browser, CI, deployment, and package gates required before publishing.
 
 ## Codex tools
 
 - `open_dashboard`
+- `discover_task_context`
+- `prepare_task_handoff`
+- `review_and_run_task_verification`
 - `api_request`
 - `run_collection`
 - `list_projects`
@@ -127,7 +142,7 @@ See the hosted [installation guide](https://aipi.website/install.html) for the c
 - `verify_changes`
 - `export_project`
 
-The tools remain fully usable without the UI. This lets Codex trace actual traffic, compare observed response contracts with database schema, generate editor-ready fixtures, and summarize cross-layer corrections directly in conversation. `get_project_timeline` provides bounded, high-signal context instead of sending entire logs or repositories into the model, while `record_project_event` preserves agent decisions and implemented changes as redacted local evidence. Fixture generation returns content without writing files so the developer's AI editor stays in control of repository changes.
+The tools remain fully usable without the UI. `discover_task_context` searches the indexed workspace and K Map graph, `prepare_task_handoff` persists the bounded agent packet, and `review_and_run_task_verification` executes the revision-bound test/replay plan and records proof. This lets Codex and any MCP-capable IDE use the same closed loop without grepping the repository or depending on a browser dashboard. `get_project_timeline` provides bounded, high-signal context instead of sending entire logs or repositories into the model, while `record_project_event` preserves agent decisions and implemented changes as redacted local evidence. Fixture generation returns content without writing files so the developer's AI editor stays in control of repository changes.
 
 `run_correction_workflow` is the closed-loop entry point. Its first call returns the failing evidence, affected files, Git freshness, fix plan, and a non-writing regression fixture. After the editor applies the correction, call it again with `verify_after_changes=true` to rerun the saved request, persist new evidence, and compare the result with the original run. State-changing methods remain blocked until `allow_state_change=true` is explicitly authorized.
 
@@ -169,12 +184,14 @@ npm run observe -- --target http://127.0.0.1:3000 --port 43128 --root /path/to/p
 
 Point the frontend at `http://127.0.0.1:43128`. Redacted request/response evidence is appended to `.api-forge/tmp/traffic.ndjson`.
 
-For Node applications whose traffic uses global `fetch`, load the zero-config hook instead:
+For Node applications using `node:http` or `node:https`, load the observer hook from an installed companion package:
 
 ```bash
 AIPI_OBSERVER_ROOT=/path/to/project \
-  node --import /absolute/path/to/API-Forge/scripts/aipi-observer-hook.mjs server.mjs
+  node --import @vmise/aipi-companion/scripts/aipi-observer-bundle.mjs server.mjs
 ```
+
+Install the companion in that project before using this module specifier. For repository development, the source hook remains at `scripts/aipi-observer-hook.mjs`. This hook does not promise capture of every networking implementation; use the explicit proxy for browser traffic.
 
 The observer removes authorization, cookies, API keys, passwords, tokens, and common secret fields. Captured evidence is still sensitive local data and should not be committed.
 
@@ -187,7 +204,7 @@ The repository ships a composite GitHub Action and a working example workflow. I
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: akhil92kolli-hub/AIPI@main
+  - uses: AIPI-AI-Programming-Interface/AIPI@main
     with:
       root: .
 ```
@@ -229,6 +246,7 @@ npm run validate
 npm run build
 npm run test:regression
 npm run test:integration
+npm run test:package
 npm test
 npm run benchmark:startup
 npm run demo:aipi
@@ -236,6 +254,8 @@ npm run dashboard
 ```
 
 The port-free regression test validates adapters, AST extraction, Zod constraints, traffic redaction, fixture anonymization, and honest unknown blast-radius status without opening a network socket. The integration test additionally starts disposable local and remote APIs, captures traffic, traces the demo route, detects its contract mismatch, diagnoses a runtime failure, generates a Vitest fixture, verifies cross-repository blast radius, exercises both MCP handshakes, loads the dashboard, and imports an OpenAPI document. GitHub Actions runs both layers independently on Linux, macOS, and Windows.
+
+The package smoke test builds and extracts an actual npm tarball outside the checkout, with no repository assets or installed dependencies to fall back to. It verifies repeat project setup, browser-session authentication, project deep links, JavaScript/CSS/logo delivery, the MCP dashboard resource and tool discovery, and observer capture/redaction. These are HTTP/protocol checks, not a browser-rendering test. Publishing runs this check before upload; packing rebuilds all three runtime bundles and includes the dashboard assets. CLI startup or a successful launch redirect alone is not sufficient release evidence.
 
 Source scans now capture the Git commit, branch, working-tree state, and changed files for every configured root. Project summaries and verification tools report whether the current repository still matches the evidence baseline.
 
@@ -248,21 +268,47 @@ Source scans now capture the Git commit, branch, working-tree state, and changed
 ```text
 Codex / ChatGPT
   ├─ API testing skill
-  └─ local MCP server
+  └─ local MCP server (stdio)
        ├─ agent tools and structured results
-       ├─ shared workspace store
+       ├─ local AIPI workspace store (~/.api-forge)
        └─ loopback dashboard
 ```
 
-The bundled dashboard is exposed as an MCP Apps UI resource and also runs on loopback for local development. Ask Codex actions use the native chat bridge when hosted by Codex and copy redacted context when opened standalone.
+The Codex plugin is the IDE surface: it contributes AIPI skills, local MCP tools, and an MCP Apps side panel. The local MCP server is started by Codex over stdio and runs on the developer's machine; it uses the same default local workspace as the AIPI Companion and VS Code extension. The companion's HTTP daemon binds only to loopback and is used by the CLI, dashboard, and IDE integrations. No hosted MCP service is required for local source inspection, task context, handoffs, or verification. The bundled dashboard is exposed as an MCP Apps UI resource and can also run on loopback for local development.
 
 ## Install for local Codex testing
 
-Place the project in a local plugin marketplace, install `api-forge`, then start a new Codex task so the skill and MCP tools are loaded. The plugin manifest is in `.codex-plugin/plugin.json`, and the local MCP process is configured by `.mcp.json`.
+Requirements: Codex desktop/local executor and Node.js 22+. In this repository, register the checked-in local marketplace:
+
+```bash
+codex plugin marketplace add .
+```
+
+Restart or refresh Codex, open the Plugins Directory (`/plugins` in Codex), choose **AIPI Local Development**, and install **AIPI**. Open a trusted repository and start a new task. Codex starts the bundled `scripts/aipi-mcp-bundle.mjs` process locally over stdio; the plugin manifest is `.codex-plugin/plugin.json`, and its MCP wiring is `.mcp.json`. The MCP server reads and writes local data under `~/.api-forge` and does not connect to the hosted AIPI MCP endpoint.
+
+To share one companion and workspace between Codex and the VS Code extension, initialize AIPI from the target repository instead:
+
+```bash
+cd /path/to/your/project
+npx --yes --package=@vmise/aipi-companion@latest -- aipi init
+```
+
+This starts or reuses the local companion, registers the repository, and writes a project-local Codex stdio MCP entry in `.codex/config.toml`. That MCP entry invokes the companion package as a thin stdio client: it starts or reuses the loopback daemon, then relays MCP calls to it. The IDE extension, dashboard, CLI, and Codex consequently use the same `~/.api-forge` workspace. Reload or start a new Codex task after setup. To remove only the repository's MCP registration, edit `.codex/config.toml`; the workspace and saved evidence remain local.
+
+For a direct manual config, the MCP server entry generated by `aipi init` is equivalent to:
+
+```toml
+[mcp_servers.aipi]
+command = "npx"
+args = ["-y", "@vmise/aipi-companion", "mcp", "--root", "/absolute/path/to/your/project"]
+startup_timeout_sec = 60
+```
+
+The local plugin is for Codex desktop/CLI with local execution. The separate `plugin/aipi` package is the authenticated cloud contract-registry plugin; it does not provide local source inspection or local replay by itself.
 
 ## Storage and security
 
-Workspace data is stored in the plugin data directory with user-only file permissions. Saved environment secrets, request authentication values, and mTLS client private keys use the native credential facility available on the host: macOS Keychain, Linux Secret Service through `secret-tool`, or Windows Credential Manager through the built-in Windows PowerShell API bridge. All providers use the `com.aipi.companion` service identity. `workspace.json` contains only opaque `aipi-secret://...` references, and AIPI has no plaintext credential fallback. Existing plaintext values are migrated the next time the workspace is saved. Use the `get_secret_storage_status` MCP tool to verify the active provider.
+Workspace data defaults to `~/.api-forge` with user-only file permissions. Saved environment secrets, request authentication values, and mTLS client private keys use the native credential facility available on the host: macOS Keychain, Linux Secret Service through `secret-tool`, or Windows Credential Manager through the built-in Windows PowerShell API bridge. All providers use the `com.aipi.companion` service identity. `workspace.json` contains only opaque `aipi-secret://...` references, and AIPI has no plaintext credential fallback. Existing plaintext values are migrated the next time the workspace is saved. Use the `get_secret_storage_status` MCP tool to verify the active provider.
 
 Request bodies, response logs, public certificates, and scripts remain local workspace data and may still be sensitive. Remove sensitive payloads before sharing plugin data. Scripts should be treated as trusted local code. Linux installations need the `secret-tool` executable and an unlocked desktop keyring. On an unsupported or unavailable provider, AIPI refuses to persist new credential values.
 

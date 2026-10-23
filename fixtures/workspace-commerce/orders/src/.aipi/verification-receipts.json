@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "projectId": "prj_8b1384520265",
+  "sourceRevision": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "receipts": [],
+  "redactionManifest": {
+    "version": 1,
+    "strategy": "deep-sensitive-field-and-vault-redaction",
+    "redactedFields": [],
+    "truncated": false,
+    "originalBytes": 0,
+    "sha256Hash": null,
+    "truncatedFields": [],
+    "plaintextSecretsPersisted": false
+  }
+}

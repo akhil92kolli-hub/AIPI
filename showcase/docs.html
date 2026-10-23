@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="AIPI documentation: local companion, MCP setup, dashboard connection, logs, evidence, and troubleshooting.">
+  <title>Docs — AIPI</title><link rel="stylesheet" href="/styles.css">
+<link rel="icon" type="image/png" href="aipi-logo.png">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark"></span><span><span class="logo-letter">A</span><span class="logo-neutral">i</span>-<span class="logo-letter">PI</span></span></a>
+    <nav aria-label="Primary navigation"><a href="/">Home</a><a href="product.html">Product</a><a href="workflow.html">Workflow</a><a class="active" href="docs.html">Docs</a><a href="install.html">Install</a></nav>
+    <a class="header-cta" href="install.html">Get started ↗</a>
+  </header>
+  <main class="page-shell docs-page">
+    <section class="page-hero"><p class="eyebrow"><span></span> Documentation / v0.1</p><h1>Build with evidence,<br><em>not guesswork.</em></h1><p>A practical guide to the AIPI companion, dashboard, MCP tools, logs, and the local-first data boundary.</p></section>
+    <section class="docs-layout">
+      <aside class="docs-index"><p class="eyebrow">On this page</p><a href="#architecture">Architecture</a><a href="#commands">Commands</a><a href="#token">Connection token</a><a href="#mcp">MCP setup</a><a href="#dashboard">Dashboard</a><a href="#troubleshoot">Troubleshooting</a></aside>
+      <div class="docs-content">
+        <section id="architecture" class="doc-section"><p class="eyebrow">01 · Architecture</p><h2>Cloud-rendered. Locally executed.</h2><p>The website and dashboard shell are delivered from Cloudflare. When you open AIPI, your browser connects directly to the companion at <code>127.0.0.1:49152</code>. Repository scans, API calls, response bodies, credentials, logs, and evidence never need to leave your machine.</p><div class="architecture-strip"><span>Cloudflare UI</span><i>→</i><span>Browser</span><i>→</i><strong>Local companion</strong><i>→</i><span>Repository + APIs</span></div></section>
+        <section id="commands" class="doc-section"><p class="eyebrow">02 · Commands</p><h2>The commands you need.</h2><p>The companion is published on the public npm registry. Run this first command from the project root; it configures the project, IDE integrations, local daemon, and dashboard in one pass.</p><div class="command-table"><div><code>npx @vmise/aipi-companion@latest init</code><span>Detect source roots, write <code>.aipirc.json</code>, configure Codex, Cursor, and VS Code, register the project, and open the connected dashboard.</span></div><div><code>npx @vmise/aipi-companion@latest open</code><span>Start or reuse the daemon and open the authenticated local dashboard later.</span></div><div><code>aipi pair</code><span>Create a short-lived outbound pairing session for the hosted dashboard after sign-in.</span></div><div><code>aipi daemon</code><span>Run the loopback dashboard server directly when you need a persistent local engine.</span></div><div><code>aipi mcp</code><span>Run the thin stdio MCP client; it reuses or starts the daemon.</span></div></div></section>
+        <section id="token" class="doc-section"><p class="eyebrow">03 · Local session</p><h2>Authenticated without a cloud URL secret.</h2><p>The default dashboard shares the loopback origin with the companion, avoiding browser Private Network Access failures.</p><div class="command-table"><div><code>1. daemon starts</code><span>Creates a cryptographically random session secret and binds only to <code>127.0.0.1</code>.</span></div><div><code>2. local launch</code><span><code>aipi open</code> opens the loopback <code>/launch</code> route for the selected project.</span></div><div><code>3. HTTP-only cookie</code><span>The launch route creates a SameSite local session and redirects to the dashboard.</span></div><div><code>4. authenticated calls</code><span>Same-origin requests include the local session automatically; protected API routes reject missing or invalid credentials.</span></div><div><code>5. hosted pairing</code><span><code>aipi pair</code> uses a separate ten-minute outbound WebSocket session when the hosted dashboard is required.</span></div></div><div class="handoff-note"><b>WHAT CLOUDFLARE SEES</b><p>The public site and paired UI transport only. Cloudflare does not receive repository files, credentials, API request/response data, logs, or evidence.</p></div></section>
+        <section id="mcp" class="doc-section"><p class="eyebrow">04 · MCP setup</p><h2>Give your agent a local evidence layer.</h2><p>Add AIPI to your MCP client. The server uses stdio, so the agent can request repository-aware discovery, diagnosis, and verification without exposing a listening MCP endpoint.</p><pre><code>{
+  "mcpServers": {
+    "aipi": {
+      "command": "aipi",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre></section>
+        <section id="dashboard" class="doc-section"><p class="eyebrow">05 · Dashboard</p><h2>Read the signal, then act.</h2><div class="docs-cards"><article><b>MAP</b><h3>Trace the contract</h3><p>See consumers, routes, validators, schemas, migrations, and tests connected by source locations.</p></article><article><b>LOGS</b><h3>Keep the useful history</h3><p>Review failed runs, agent activity, new APIs, project changes, and concise diagnosis summaries.</p></article><article><b>EVIDENCE</b><h3>Understand the why</h3><p>Every finding carries confidence, detection method, and the files that support it.</p></article></div><div class="handoff-note"><b>HANDOFF TO YOUR AGENT</b><p>Open a failed Log and choose <strong>Copy handoff</strong>. Or ask your IDE agent to call <code>get_latest_handoff</code> through MCP. AIPI owns evidence and verification; your agent owns code changes.</p></div></section>
+        <section id="troubleshoot" class="doc-section"><p class="eyebrow">06 · Troubleshooting</p><h2>When the dashboard says disconnected.</h2><details open><summary>Check the daemon</summary><p>Run <code>aipi doctor</code> or <code>aipi open</code>. Confirm that <code>http://127.0.0.1:49152/health</code> responds. If that port is busy, AIPI automatically tries the next ports through <code>49160</code>.</p></details><details><summary>Refresh the session</summary><p>Close the dashboard tab and run <code>aipi open</code> again. AIPI creates a fresh same-origin local session.</p></details><details><summary>IDE cannot find MCP</summary><p>Run <code>aipi init</code> again from the project root. It writes the <code>aipi</code> entry to local Cursor and VS Code MCP configuration. Restart the IDE after changing its MCP settings.</p></details><details><summary>Need the hosted dashboard</summary><p>Sign in and use <code>aipi pair</code>. The companion connects outward through the short-lived relay, so the hosted page never needs browser access to localhost.</p></details></section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

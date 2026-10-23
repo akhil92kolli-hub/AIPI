@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import vm from "node:vm";
+import { commerceState } from "../fixtures/workspace-commerce/state.mjs";
+const temp = await fs.mkdtemp(path.join(os.tmpdir(), "aipi-context-review-test-"));
+process.env.AIPI_DATA = temp;
+try {
+  const { mutateState } = await import("../scripts/workspace-store.mjs");
+  const { callTool, BOUNDED_MCP_TOOL_DEFINITIONS } = await import("../scripts/api-forge-server.mjs");
+  await mutateState(state => Object.assign(state, commerceState()));
+  for (const name of ["prepare_task_draft_context", "submit_task_context_review", "get_task_context_review"]) assert.ok(BOUNDED_MCP_TOOL_DEFINITIONS.some(t => t.name === name));
+  const manual = { project_id: "orders", draft_id: "manual", objective: "Improve checkout", request_ids: ["checkout-request"], acceptance_criteria: ["Invalid amounts are explained"] };
+  const prepared = await callTool("prepare_task_draft_context", manual);
+  assert.equal(Boolean(prepared.isError), false);
+  const reviewId = prepared.structuredContent.reviewId;
+  assert.ok(reviewId);
+  const submitted = await callTool("submit_task_context_review", { project_id: "orders", review_id: reviewId, summary: "Include the saved checkout request", request_ids: ["checkout-request"] });
+  assert.equal(submitted.structuredContent.status, "awaiting-developer-review");
+  const fetched = await callTool("get_task_context_review", { project_id: "orders", review_id: reviewId });
+  assert.equal(fetched.structuredContent.suggestions.references[0].id, "checkout-request");
+  assert.equal((await callTool("get_task_context_review", { project_id: "storefront", review_id: reviewId })).isError, true);
+  const source = await fs.readFile(new URL("../ui/app.js", import.meta.url), "utf8");
+  const fn = source.slice(source.indexOf("async function prepareDraftContext("), source.indexOf("function taskSelectionPayload("));
+  const draft = { id: "draft", projectId: "orders", description: "Manual goal", artifactIds: [], contractIds: [], requestIds: [], acceptanceCriteria: ["Manual check"], agentEnrich: true };
+  const sandbox = { taskTool: async () => { throw new Error("MCP unavailable"); }, draft };
+  vm.createContext(sandbox);
+  await vm.runInContext(`${fn}; prepareDraftContext(draft)`, sandbox);
+  assert.deepEqual(draft.acceptanceCriteria, ["Manual check"]);
+  assert.equal(draft.description, "Manual goal");
+  assert.match(draft.contextMessage, /manual selections and acceptance criteria are preserved/);
+  console.log("MCP context review discovery, round trip, project isolation and UI failure fallback passed");
+} finally { await fs.rm(temp, { recursive: true, force: true }); }

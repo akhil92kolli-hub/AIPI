@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-22",
+  "scope": "D0 graph authorization broker and D1 conservative Team PR report",
+  "sourceSha256": {
+    "cloud/worker.ts": "efc635aef7197bc4f7c58792dec217028d645eedf57de4f78d44f8bae4e7625a",
+    "packages/core/team-pr-report.mjs": "42780456cbcce30b6bf2b0d1f3c5618b74e5b7ed19f801825c310f1784c5774f",
+    "supabase/migrations/20261022230000_broker_team_graph_reads.sql": "396901fe8c3c6bb6c87d74720ea0ea2509d680fab20d731f8e39a527011cb8a0",
+    "supabase/migrations/20261022231000_broker_team_graph_writes.sql": "ca035da99cb504b5561c1668818957d4847683647b2dcea663bf6000a52558cd"
+  },
+  "checks": [
+    {"name": "Fresh PostgreSQL 17 migration replay", "result": "passed", "detail": "40 migrations applied to a fresh database with minimal Supabase Auth, Realtime and Cron stand-ins; unavailable pg_cron extension creation omitted and stand-in cron.schedule executed"},
+    {"name": "Workspace isolation SQL", "result": "passed", "assertions": 15},
+    {"name": "Graph read broker SQL", "result": "passed", "assertions": 6, "detail": "authenticated direct SELECT denied on graph nodes and edges; service-role SELECT granted"},
+    {"name": "Graph write broker SQL", "result": "passed", "assertions": 6, "detail": "authenticated direct publish/review execution denied; service broker accepted a current editor and rejected queued publish/review after membership removal"},
+    {"name": "Cloud worker smoke", "command": "npm run test:cloud", "result": "passed", "detail": "mocked GitHub and PostgREST route checks for graph read/publish/review, PR assessment/report, and full export before and after consumer/source grant removal; export refused an inaccessible workspace; successful CI alone remained unverified"},
+    {"name": "Full application suite", "command": "npm test", "result": "passed"},
+    {"name": "TypeScript", "command": "npx tsc --noEmit && ./node_modules/.bin/tsc --noEmit -p sites/aipi-public/tsconfig.json", "result": "passed"},
+    {"name": "Team site build", "command": "npm --prefix sites/aipi-public run build", "result": "passed"},
+    {"name": "React/Orders/Billing runtime fixture", "command": "npm run test:verified-change -- --report docs/evidence/verified-change-d0-d1-2026-10-22.json", "result": "passed", "detail": "four known-bad check failures and four repaired passes reproduced in separate checkouts; prior proof stale; repaired ledger remained unknown"}
+  ],
+  "limits": [
+    "The PostgreSQL harness is not a full Supabase instance. It did not exercise Auth JWT issuance, PostgREST, Storage or Realtime with live identities.",
+    "The route acceptance used mocked GitHub and data APIs. Current grants were checked per request, but a live OAuth/App revocation journey remains untested.",
+    "Task, evidence, PR and sync payloads can still carry bound-repository details under workspace-wide authority; D0 requires a full resource-rights audit and brokered/redacted projections.",
+    "The Team PR report does not accept ordinary CI success as complete proof. No common local/Team signed receipt and target-pin contract exists yet.",
+    "The repaired fixture ledger remained unknown because independent dependency discovery and passing-test relevance have not been attested by the product.",
+    "D0 and D1 are partial; later delivery gates remain open."
+  ]
+}

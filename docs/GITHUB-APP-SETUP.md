@@ -1,0 +1,15 @@
+# AIPI Team GitHub App registration
+
+`AIPI Team Connector` is registered at `https://github.com/apps/aipi-team-connector` under `AIPI-AI-Programming-Interface` (App ID `5422174`, client ID `Iv23li3YwWzsj4VMO8EO`). The public GitHub API confirms the expected permissions and subscribed events. These public IDs and the callback URL are configured on the Cloudflare Worker. Each team must connect its own installation in Team settings before repository bindings become available.
+
+For a fresh registration in another environment, run `node scripts/github-app-registration-url.mjs` and review the prefilled URL before submission.
+
+Select **Any account** so customer organizations can install the App. During installation, select **Only select repositories** and choose the repositories to connect. The App requests repository Issues (read/write), Pull requests (read), Checks (read), Contents (read), and Metadata (read), and subscribes to `pull_request` and `check_run`. User OAuth during installation stays off because the current Team flow starts OAuth with a signed state from `/api/team/github/oauth/start` after the user signs in to AIPI.
+
+Confirm the GitHub App's webhook URL is `https://mcp.aipi.website/api/github/webhook`, SSL verification is enabled, and its webhook secret matches Cloudflare Worker secret `GITHUB_WEBHOOK_SECRET`. Generate a client secret and private key in the App's settings and set Worker secrets `GITHUB_APP_CLIENT_SECRET` and `GITHUB_APP_PRIVATE_KEY`. `GITHUB_APP_CALLBACK_URL` is already configured as `https://app.aipi.website/team/github-callback`. Keep the private key and secrets out of Git, shell history, and browser URLs. `SUPABASE_SERVICE_ROLE_KEY` and `GITHUB_OAUTH_STATE_SECRET` are already configured on the Worker.
+
+Deploy `aipi-remote-mcp` after setting its secrets. Then open `https://app.aipi.website/team`, choose a workspace, and use **Connect projects to GitHub**. Install the App on selected repositories, authorize your GitHub account, choose the returned installation, then choose an existing AIPI project and one of the installed repositories. AIPI discovers numeric repository and installation IDs; users do not need to copy them. The repository root defaults to `.`. Enter a relative subfolder only when the AIPI project lives inside a monorepo. Confirm a pull-request webhook delivery succeeds and its change appears in the Team dashboard.
+
+If GitHub sends a user directly to `/team/github-callback` during installation, AIPI saves only the installation ID and returns to Team settings. The GitHub authorization code from that redirect cannot be used because it lacks AIPI's signed request state. Sign in to AIPI Team and click **Connect my GitHub App account** to start a verified OAuth request, then **Connect installation**. AIPI does not accept an installation ID as proof of access by itself.
+
+Supabase Auth must allow `https://app.aipi.website/team` as an exact redirect URL. New magic links requested from the Team page use this URL. Links issued before the allowlist update may still point to the old marketing site; request a new code or link instead of reusing them.

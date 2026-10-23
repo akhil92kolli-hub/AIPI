@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import path from "node:path";
+import crypto from "node:crypto";
 import { isSecretName, normalizeRoute, redactRecord } from "../core/index.mjs";
 
 const MAX_CAPTURE_BYTES = 256_000;
@@ -82,12 +83,13 @@ function collect(stream) {
   return chunks;
 }
 
-export async function startTrafficProxy({ target, root = process.cwd(), host = "127.0.0.1", port = 43128 } = {}) {
+export async function startTrafficProxy({ target, root = process.cwd(), host = "127.0.0.1", port = 43128, onRequestAuth } = {}) {
   if (!target) throw new Error("A target URL is required");
   const upstream = new URL(target);
   if (!["http:", "https:"].includes(upstream.protocol)) throw new Error("Proxy target must use HTTP or HTTPS");
   const server = http.createServer((request, response) => {
     const startedAt = Date.now();
+    if (onRequestAuth && (request.headers.authorization || request.headers.cookie)) void Promise.resolve(onRequestAuth({ authorization: request.headers.authorization, cookie: request.headers.cookie })).catch(() => {});
     const requestChunks = collect(request);
     const destination = new URL(request.url || "/", upstream);
     const transport = destination.protocol === "https:" ? https : http;

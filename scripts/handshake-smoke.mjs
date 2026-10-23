@@ -54,10 +54,22 @@ try {
   })}\n`, { mode: 0o600 });
 
   await exec(process.execPath, [cli, "init", "--root", root, "--config-only"], { env, timeout: 15000 });
-  const { stdout } = await exec(process.execPath, [
+  const { stdout, stderr } = await exec(process.execPath, [
     cli, "open", "--root", root, "--app", "https://www.aipi.website/dashboard/", "--no-open",
   ], { env, timeout: 30000 });
-  assert.match(stdout, new RegExp(`https://www\\.aipi\\.website/dashboard/#port=${dashboard.port}&token=${token}&project=`));
+  assert.match(stdout, new RegExp(`http:\\/\\/127\\.0\\.0\\.1:${dashboard.port}\\/launch\\?project=`));
+  assert.match(stderr, /use `aipi pair` for the hosted dashboard/);
+
+  const launch = await fetch(`${dashboard.url}/launch?project=example`, { redirect: "manual" });
+  assert.equal(launch.status, 302);
+  assert.equal(launch.headers.get("location"), "/projects/example");
+  assert.match(launch.headers.get("set-cookie") ?? "", /^aipi_session=.*HttpOnly; SameSite=Strict/);
+  const cookie = launch.headers.get("set-cookie").split(";", 1)[0];
+  const cookieConnection = await fetch(`${dashboard.url}/api/connection`, { headers: { cookie } });
+  assert.equal(cookieConnection.status, 200);
+  const cleanRoute = await fetch(`${dashboard.url}/projects/example/apis`, { headers: { cookie } });
+  assert.equal(cleanRoute.status, 200);
+  assert.match(await cleanRoute.text(), /id="app"/);
 
   const origin = "https://www.aipi.website";
   const preflight = await fetch(`${dashboard.url}/api/state`, {
@@ -105,8 +117,9 @@ try {
   })}\n`);
   await assert.rejects(
     exec(process.execPath, [cli, "status"], { env, timeout: 15000 }),
-    (error) => error.code === 1 && /"status": "offline"/.test(error.stdout)
+    (error) => error.code === 1 && /incompatible or authentication failed/.test(error.stderr)
   );
+  assert.ok(await fs.stat(connectionFile), "an incompatible active companion descriptor is preserved");
   console.log("Handshake smoke passed: real dashboard server, project registration/selection, hosted dashboard launch, PNA/CORS preflight, authenticated local state, rejected unauthenticated state, and stale-daemon rejection.");
 } finally {
   if (dashboard) await new Promise((resolve, reject) => dashboard.server.close((error) => error ? reject(error) : resolve()));

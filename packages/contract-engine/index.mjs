@@ -7,7 +7,7 @@ import { astFrontendPayload, astRouteInfo } from "./ast-index.mjs";
 import { findRouteHandler } from "./route-adapters.mjs";
 import { validationForHandler } from "./validation-adapters.mjs";
 
-const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".prisma"]);
+const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".prisma"]);
 const IGNORED = new Set([".git", ".next", "node_modules", "dist", "build", "coverage", ".api-forge"]);
 
 async function walk(root) {

@@ -8,7 +8,7 @@ process.env.AIPI_APP_ORIGIN = "https://legacy-dashboard.example";
 const { startDashboard } = await import("../scripts/dashboard-server.mjs");
 const dashboard = await startDashboard();
 try {
-  for (const origin of ["https://aipi.website", "https://www.aipi.website", "https://legacy-dashboard.example"]) {
+  for (const origin of ["https://aipi.website", "https://www.aipi.website", "https://aipi-team-cloud.ceo-935.workers.dev", "https://legacy-dashboard.example"]) {
     const preflight = await fetch(`${dashboard.url}/api/state`, {
       method: "OPTIONS",
       headers: {
@@ -33,5 +33,11 @@ try {
   assert.equal(connection.headers.get("access-control-allow-origin"), "https://www.aipi.website");
   console.log("Origin smoke passed: production dashboard origins, additive custom origin, private-network preflight, authenticated handshake, and untrusted-origin rejection.");
 } finally {
-  await new Promise((resolve, reject) => dashboard.server.close((error) => error ? reject(error) : resolve()));
+  await new Promise((resolve, reject) => {
+    dashboard.server.close((error) => error ? reject(error) : resolve());
+    dashboard.server.closeAllConnections();
+  });
 }
+// The smoke process may inherit active workspace file watchers from the local
+// companion. Its own HTTP server has closed and all assertions completed.
+process.exit(0);

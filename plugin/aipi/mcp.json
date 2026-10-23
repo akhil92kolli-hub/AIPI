@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "aipi": {
+      "type": "streamable-http",
+      "url": "https://mcp.aipi.website/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "dcr"
+            },
+            "authorizationUrl": "https://zwffmaxjbzuazopvorkv.supabase.co/auth/v1/oauth/authorize",
+            "tokenUrl": "https://zwffmaxjbzuazopvorkv.supabase.co/auth/v1/oauth/token",
+            "registrationUrl": "https://zwffmaxjbzuazopvorkv.supabase.co/auth/v1/oauth/clients/register",
+            "baseScopes": ["openid", "profile", "email", "offline_access"]
+          }
+        }
+      }
+    }
+  }
+}

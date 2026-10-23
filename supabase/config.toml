@@ -1,4 +1,36 @@
 
+project_id = "aipi"
+
+[auth]
+site_url = "https://aipi.website"
+additional_redirect_urls = [
+  "https://app.aipi.website/team",
+  "https://app.aipi.website/team/",
+  "https://aipi-team-cloud.ceo-935.workers.dev/team",
+  "https://aipi-team-cloud.ceo-935.workers.dev/team/",
+  "https://aipi.website/login",
+  "https://aipi.website/login.html",
+  "https://www.aipi.website/login",
+  "https://www.aipi.website/login.html",
+  "https://aipi.ceo-935.workers.dev/login",
+  "https://aipi.ceo-935.workers.dev/login.html",
+  "https://aipi-developer-intelligence.maplecrown.chatgpt.site/team"
+]
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
+
 [functions.aipi-mcp]
 enabled = true
 verify_jwt = true

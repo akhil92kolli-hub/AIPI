@@ -1,0 +1,9 @@
+node_modules/
+.git/
+.wrangler/
+dist/server/
+README.md
+package.json
+package-lock.json
+wrangler.jsonc
+scripts/

@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-22",
+  "baseCommit": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "sourceState": "dirty working checkout; this record pins source file hashes rather than a new commit",
+  "capability": "Baseline-hash-matched indexed symbol spans for selected local Git assessments",
+  "filesSha256": {
+    "packages/contract-engine/ast-index.mjs": "2243db4142dd667d8e143f4413185fb3477d8ea45e77632ef2be0f4e3d725bee",
+    "packages/contract-engine/route-adapters.mjs": "164c3ccffa667960f0c981b3b22b07ae009c368a061f4a4a47e7b363bb3bf0e3",
+    "packages/contract-engine/http-source.mjs": "cf0c3d21dea536f280949c2d3cf10be3cd5f88d70ac31dcdc60ca167c16b755b",
+    "scripts/dashboard-server.mjs": "23d32fcd4fe1ca538454d198ed336fe2d2eb39f5f142dcf2364d750b9477c87d",
+    "scripts/run-verified-change-fixture.mjs": "adaa500ff666864a1e66d6273631ff0270d8a4fcf5c866c32d6121a0631ba232",
+    "packages/core/task-context.mjs": "5994e9c326f34a1218a1f17988f371097564ef4796bd9bd56830cdaa73102767",
+    "packages/core/workspace-groups.mjs": "bd9638ba60f8da5cf10483937e901b1ded0f22552c7002b4a6e671808d876b58",
+    "packages/core/change-diff.mjs": "cd86beb736c52100ad779a5923ecf74d3e44cd124725385492192ccf04662a65",
+    "packages/core/change-assessment.mjs": "7b3594895863959921b99d0c089f123d17ecf5b13875aa48324a26fe924da989",
+    "ui/change-assessment-view.js": "76aefe3d1b8daa4c151da724637814b46178cee52f64dae12bfed5c975b0a664",
+    "ui/workspace-app.js": "41ebd360c38c5f83acfd7fcb5ed21abe8f144fddd785d51b58cf83fb5b7db692",
+    "tests/http-source.test.mjs": "8a7e0bf37af77a819347e5d7600a3e6fa9ee5d1745cc56dbee8dd889c7b9b0de",
+    "tests/change-diff.test.mjs": "bbf77ab69069127eec40b7c35e4cb2645ac15079c7a914a8659536a1431357ba",
+    "tests/change-assessment.test.mjs": "eec8650e2367e7db9d35a54f74eea63a19661ec5514eae15252c04ea19e53905",
+    "tests/change-assessment-view.test.mjs": "ed85d241b4aec1723a7c4f4bc513add4e040f65e3b65cf51cd80205221a6b7e2"
+  },
+  "checks": [
+    { "command": "node tests/http-source.test.mjs && node --test tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/change-assessment-view.test.mjs tests/change-assessment-route.test.mjs tests/workspace-app.test.mjs tests/workspace-groups.test.mjs", "result": "source-index assertions and 28 focused tests passed" },
+    { "command": "npm test", "result": "passed" },
+    { "command": "npm run build:extension", "result": "passed; root typecheck, UI/MCP/CLI/verify/observer bundles and IDE assets/bridge" },
+    { "command": "npm run test:package", "result": "passed; isolated package and MCP smoke" },
+    { "command": "npm run test:verified-change -- --report docs/evidence/verified-change-symbol-location-2026-10-22.json", "result": "passed; Orders handler located; four bad checks failed and four repaired checks passed in a separate checkout" }
+  ],
+  "fixtureReport": "verified-change-symbol-location-2026-10-22.json",
+  "observedBehavior": [
+    "The source index records an end line and parser provenance for FastAPI handlers and supported TypeScript/JavaScript handlers and calls.",
+    "A selected diff returns a baseline file hash and changed hunk coordinates, without source or patch text.",
+    "An indexed span is labeled overlapping only when its source file hash matches the selected diff old-side blob and a hunk intersects its old-side range. Tests distinguish commit, staged-index and unstaged-index baselines.",
+    "When the index hash is stale, the assessment falls back to file association; same-file targets remain visible.",
+    "The real Orders defect was located in the indexed handler; Billing's missing check, failed receipts, stale proof and incomplete repaired ledger remained visible."
+  ],
+  "limitations": [
+    "FastAPI end lines use indentation heuristics; TypeScript/JavaScript spans use AST ranges. Neither establishes a semantic response-contract delta.",
+    "Only eligible, bounded tracked text files have baseline hashes and hunk ranges. Unsupported paths remain file-level potential impacts.",
+    "Consumer links in the runtime fixture are seeded from inspected source; independent discovery, owner coverage and test relevance are incomplete.",
+    "Temporary fixture repositories and package manifests are deleted; the redacted report alone cannot reproduce those commits.",
+    "Team parity, permission-revocation, browser/keyboard and full D1/D2 release gates remain open."
+  ]
+}

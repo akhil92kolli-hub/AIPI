@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-22",
+  "project": {
+    "name": "AIPI-Team",
+    "ref": "zwffmaxjbzuazopvorkv",
+    "state": "existing active project; one organization, workspace, repository binding and Auth user before isolated tests"
+  },
+  "deployment": {
+    "migration": "20261022232000_lock_workspace_writer_membership.sql",
+    "remoteMigrationCountBefore": 40,
+    "remoteMigrationCountAfter": 41,
+    "result": "applied and verified in remote migration history"
+  },
+  "rollbackOnlySql": {
+    "source": "supabase/tests/live_team_guard_transaction.sql",
+    "runner": "scripts/live-supabase-sql-acceptance.py",
+    "result": "passed on actual Supabase Postgres",
+    "assertions": [
+      "January 31 three-calendar-month trial clamps to April 30",
+      "authenticated graph table reads and direct graph write RPCs have no grants",
+      "service repository-binding grant exists",
+      "workspace editor write succeeds before membership revocation",
+      "workspace editor write fails after revocation without leaving a task row"
+    ]
+  },
+  "twoUserApi": {
+    "source": "scripts/live-supabase-authorization-acceptance.py",
+    "result": "passed with two temporary signed-in Auth users and one isolated organization",
+    "surfaces": ["Auth", "PostgREST", "snapshot RPC", "Realtime Postgres Changes"],
+    "observations": [
+      "server-created workspace trial has activation and three-calendar-month end derived from workspace creation",
+      "viewer reads task, workspace, trial and snapshot before revocation",
+      "direct authenticated graph REST read is denied",
+      "viewer reads zero task, workspace and trial rows after workspace membership revocation",
+      "snapshot omits the revoked workspace after revocation",
+      "revoked viewer task REST write is denied",
+      "owner retains workspace read access",
+      "viewer receives a team_change_events websocket event after Postgres subscription readiness while authorized",
+      "the event written after viewer revocation is absent from the same websocket during a four-second observation window",
+      "editing the isolated workspace does not change its trial activation/end dates",
+      "a service-owned fixture expiry blocks new Team change events while preserving owner task and trial reads",
+      "a fresh owner sign-in after fixture expiry retains the expired trial dates"
+    ],
+    "cleanup": {
+      "temporaryOrganizationsRemaining": 0,
+      "temporaryAuthUsersRemaining": 0
+    }
+  },
+  "export": {
+    "sourceChange": "The Team worker export now includes workspace subscription dates and rejects incomplete subscription coverage.",
+    "sourceValidation": "Cloud worker smoke passed with an expired-trial fixture and authorized repository access; missing subscription data returns conflict instead of a partial export.",
+    "deployedWorkerAttempt": "GET https://mcp.aipi.website/api/team/organizations/{isolatedOrg}/export returned HTTP 403 with no JSON error through this host. A separate unauthenticated curl to the same host timed out. The cause was not established; the isolated fixture was removed.",
+    "liveAcceptance": "open"
+  },
+  "validation": {
+    "rootNpmTest": "passed before the final worker export edit",
+    "focusedCloudSmokeAfterExportEdit": "passed",
+    "rootTypeScriptAfterExportEdit": "passed",
+    "pythonAndRealtimeProbeSyntax": "passed",
+    "tokenPersistence": "Management token and project keys were read through process stdin or memory and were not written to repository files."
+  },
+  "limitations": [
+    "The existing project was not a fresh disposable Supabase project; its existing organization, workspace, binding and user were not used as fixtures.",
+    "This does not cover a second physical device, offline/out-of-order sync, current GitHub user/App-scope revocation, worker artifact routes, or live private Storage artifact access.",
+    "The project has only a public logo Storage bucket; no private Team artifact bucket was available to exercise artifact revocation.",
+    "Realtime revocation was observed for four seconds on one subscribed channel, not across reconnects or all event routes. The repeatable websocket probe is scripts/live-supabase-realtime-probe.mjs.",
+    "Trial expiry was simulated by changing the isolated fixture's end timestamp; a real three-month elapsed lifecycle and paid conversion were not checked. Deployed post-expiry export remains unproven after an unexplained 403 from this host.",
+    "D0, D1, D5 and all later delivery-stage gates remain open."
+  ]
+}

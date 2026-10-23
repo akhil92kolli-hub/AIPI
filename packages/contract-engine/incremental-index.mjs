@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const INDEX_VERSION = 1;
+// Bump when detector semantics change; cached derived metadata is not valid
+// across parser or relationship-rule changes.
+export const SOURCE_INDEX_VERSION = 4;
 
 function digest(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
@@ -10,10 +12,10 @@ function digest(text) {
 async function readIndex(file) {
   try {
     const value = JSON.parse(await fs.readFile(file, "utf8"));
-    return value.version === INDEX_VERSION && value.files && typeof value.files === "object" ? value : { version: INDEX_VERSION, files: {} };
+    return value.version === SOURCE_INDEX_VERSION && value.files && typeof value.files === "object" ? value : { version: SOURCE_INDEX_VERSION, files: {} };
   } catch (error) {
     if (error.code !== "ENOENT" && error.name !== "SyntaxError") throw error;
-    return { version: INDEX_VERSION, files: {} };
+    return { version: SOURCE_INDEX_VERSION, files: {} };
   }
 }
 
@@ -25,43 +27,49 @@ async function writeIndex(file, value) {
 }
 
 /**
- * Incrementally derives source metadata without storing source text. A fast
- * stat signature avoids reading unchanged files; changed files are hashed so
- * timestamp-only updates can still reuse their previous derived result.
+ * Incrementally derives source metadata without storing source text. Every
+ * candidate is hashed from bytes before a cached result is reused: a file can
+ * change while retaining the same size and timestamp.
  */
 export async function incrementalSourceIndex({ root, files, detect, maxBytes = 2_000_000, cacheFile }) {
   const rootPath = path.resolve(root);
+  const realRoot = await fs.realpath(rootPath);
   const indexFile = cacheFile ?? path.join(rootPath, ".api-forge", "cache", "source-index-v1.json");
   const previous = await readIndex(indexFile);
-  const next = { version: INDEX_VERSION, root: rootPath, generatedAt: new Date().toISOString(), files: {} };
+  const next = { version: SOURCE_INDEX_VERSION, root: rootPath, generatedAt: new Date().toISOString(), files: {} };
   const results = [];
   const metrics = { discovered: files.length, parsed: 0, cacheHits: 0, contentHits: 0, removed: 0, skippedLarge: 0, unreadable: 0 };
 
   for (const absoluteFile of files) {
     const relative = path.relative(rootPath, absoluteFile).replaceAll(path.sep, "/");
     try {
+      if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)) {
+        metrics.unreadable += 1;
+        continue;
+      }
+      const realFile = await fs.realpath(absoluteFile);
+      if (!realFile.startsWith(`${realRoot}${path.sep}`)) {
+        metrics.unreadable += 1;
+        continue;
+      }
       const stats = await fs.stat(absoluteFile);
       const signature = `${stats.size}:${Math.trunc(stats.mtimeMs)}`;
       const cached = previous.files[relative];
-      if (cached?.signature === signature && cached.result) {
-        next.files[relative] = cached;
-        results.push(cached.result);
-        metrics.cacheHits += 1;
-        continue;
-      }
       if (stats.size > maxBytes) {
         metrics.skippedLarge += 1;
         continue;
       }
-      const text = await fs.readFile(absoluteFile, "utf8");
-      const hash = digest(text);
+      const bytes = await fs.readFile(absoluteFile);
+      if (bytes.length > maxBytes) { metrics.skippedLarge += 1; continue; }
+      const hash = digest(bytes);
       if (cached?.hash === hash && cached.result) {
         next.files[relative] = { ...cached, signature };
         results.push(cached.result);
-        metrics.contentHits += 1;
+        if (cached.signature === signature) metrics.cacheHits += 1;
+        else metrics.contentHits += 1;
         continue;
       }
-      const result = await detect(absoluteFile, text);
+      const result = await detect(absoluteFile, bytes.toString('utf8'));
       next.files[relative] = { signature, hash, result };
       results.push(result);
       metrics.parsed += 1;

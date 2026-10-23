@@ -1,5 +1,7 @@
 import path from "node:path";
 import { normalizeRoute } from "../core/index.mjs";
+import { nodeHttpRoutes } from "./http-source.mjs";
+import { astRouteInfo } from "./ast-index.mjs";
 
 const METHODS = "GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS";
 
@@ -18,7 +20,8 @@ export function routeMatches(pattern, route) {
   return expected.every((part, index) => part.startsWith(":") || part === actual[index]);
 }
 
-function handler({ adapter, framework, method, route, file, text, index = 0, exportName = null, confidence, parser }) {
+function handler({ adapter, framework, method, route, file, text, index = 0, endLine = null, rangeMethod = null,
+  exportName = null, confidence, parser }) {
   return {
     adapter,
     framework,
@@ -26,6 +29,8 @@ function handler({ adapter, framework, method, route, file, text, index = 0, exp
     route: normalizeRoute(route),
     file,
     line: lineFor(text, index),
+    ...(Number.isInteger(endLine) ? { endLine } : {}),
+    ...(Number.isInteger(endLine) && rangeMethod ? { rangeMethod } : {}),
     index,
     export: exportName,
     confidence,
@@ -42,7 +47,10 @@ function nextHandlers(file, text) {
   const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+(${METHODS})\\b|export\\s+(?:const|let|var)\\s+(${METHODS})\\s*=`, "gi");
   for (const candidate of text.matchAll(pattern)) {
     const method = candidate[1] ?? candidate[2];
-    results.push(handler({ adapter: "next-app-router", framework: "Next.js App Router", method, route, file, text, index: candidate.index, exportName: method.toUpperCase(), confidence: .98, parser: "file-route" }));
+    const ast = astRouteInfo({ file, text, method }).handler;
+    results.push(handler({ adapter: "next-app-router", framework: "Next.js App Router", method, route,
+      file, text, index: candidate.index, endLine: ast?.endLine, rangeMethod: ast ? 'typescript-ast' : null,
+      exportName: method.toUpperCase(), confidence: .98, parser: "file-route" }));
   }
   return results;
 }
@@ -84,17 +92,30 @@ function javascriptRouterHandlers(file, text) {
 
 function fastApiHandlers(file, text) {
   if (!file.endsWith(".py")) return [];
-  return [...text.matchAll(/@(?:app|router)\.(get|post|put|patch|delete|head|options)\s*\(\s*["']([^"']+)["']/gi)].map((candidate) => handler({ adapter: "fastapi", framework: "FastAPI", method: candidate[1], route: candidate[2], file, text, index: candidate.index, exportName: "decorated-handler", confidence: .96, parser: "decorator" }));
+  const lines = text.split(/\r?\n/);
+  return [...text.matchAll(/@(?:app|router)\.(get|post|put|patch|delete|head|options)\s*\(\s*["']([^"']+)["']/gi)].map((candidate) => {
+    const decoratorLine = lineFor(text, candidate.index);
+    let definition = decoratorLine;
+    while (definition < lines.length && (lines[definition].trim() === '' || /^\s*@/.test(lines[definition]))) definition++;
+    const match = lines[definition]?.match(/^(\s*)(?:async\s+)?def\s+\w+\s*\(/);
+    let endLine = null;
+    if (match) {
+      const indentation = match[1].length;
+      endLine = lines.length;
+      for (let next = definition + 1; next < lines.length; next++) {
+        if (!lines[next].trim() || /^\s*#/.test(lines[next])) continue;
+        if (lines[next].match(/^\s*/)[0].length <= indentation) { endLine = next; break; }
+      }
+      while (endLine > definition + 1 && !lines[endLine - 1]?.trim()) endLine--;
+    }
+    return handler({ adapter: "fastapi", framework: "FastAPI", method: candidate[1], route: candidate[2],
+      file, text, index: candidate.index, endLine, rangeMethod: 'python-indentation-heuristic',
+      exportName: "decorated-handler", confidence: .96, parser: "decorator" });
+  });
 }
 
 function nodeHttpHandlers(file, text) {
-  const results = [];
-  for (const candidate of text.matchAll(/(?:pathname|url\.pathname)\s*===?\s*["'`]([^"'`]+)["'`]/g)) {
-    const nearby = text.slice(Math.max(0, candidate.index - 320), candidate.index + 320);
-    const method = nearby.match(new RegExp(`(?:request|req)\\.method\\s*===?\\s*["'](${METHODS})["']`, "i"))?.[1] ?? "GET";
-    results.push(handler({ adapter: "node-http", framework: "Node HTTP", method, route: candidate[1], file, text, index: candidate.index, exportName: "request-handler", confidence: .8, parser: "route-condition" }));
-  }
-  return results;
+  return nodeHttpRoutes(file, text).map(entry => handler({ ...entry, adapter: "node-http", framework: "Node HTTP", file, text, exportName: "request-handler" }));
 }
 
 const adapters = [nextHandlers, supabaseHandlers, fastApiHandlers, javascriptRouterHandlers, nodeHttpHandlers];

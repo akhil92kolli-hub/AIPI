@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "recordType": "local-audit-observation-not-aipi-verification-receipt",
+  "auditDate": "2026-10-23",
+  "timezone": "Asia/Kolkata",
+  "repository": "/Users/akhilkolli/Downloads/AiPI",
+  "head": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "packageVersion": "0.4.9",
+  "runtime": "Node.js v22.15.1",
+  "workingTree": "Extensive pre-existing tracked modifications and untracked implementation files; selected SHA-256 hashes below identify inspected bytes, not a complete release snapshot.",
+  "sourceHashes": {
+    "package.json": "5ab18d00b36d1b77eab2d7575d62ff6a772453eaf129d2a48b4be367930eacc6",
+    "packages/core/workspace-provider.mjs": "cd44f36bcbbe7943ffeaed7006f36ec81fe04c17a5578672fc99b13401320001",
+    "packages/core/team-memory.mjs": "1a52507d7302c7e51d26f318d0d0ee5121d9f5c68d5c8c74d7e8b2565ec69931",
+    "packages/core/deployment-gate.mjs": "9037be245d765104e2b27aa8dd850279fcab913ef23352b46e82ee821323de94",
+    "packages/core/assessment-proof.mjs": "98c7d58aebc89dc901f798795fe55af752fe5c9804dd25da565678fd75a040e7",
+    "packages/core/verification-coverage.mjs": "5bd880d4f789bed53c4d7f2ef209cf6709fd55e350df8fdf9e61c1ef850897aa",
+    "packages/core/task-context.mjs": "5994e9c326f34a1218a1f17988f371097564ef4796bd9bd56830cdaa73102767",
+    "packages/core/handoff.mjs": "5506c5c44fe4c2665a1cd6f0649694cc12c0b976fbd6eeef18efd43d625f56d6",
+    "packages/core/task-proposals.mjs": "22c5401d6a0aadefd69239c60c1d8faca308e180c151bffaf1086b1d1eb5dd36",
+    "packages/core/team-sync-client.mjs": "5f52a1a74a808f02d3b07f0a12b087b94e2360ef6e3956016f9cbf6bbf8ef35f",
+    "packages/core/team-sync-store.mjs": "648ce9f83abed850204db4a7c46326f59472cb11e9cc885b0727aa0fd1d8ee79",
+    "packages/core/team-local-reconcile.mjs": "5d700bbd6007bc6fe34f72c665b926ac5bddf5af8142bc4f5fa9dd6f5df4be38",
+    "packages/core/team-impact.mjs": "b2e77d1dd55b8a07251c73c53f148c1920918a42a7bb6332b004ca917b22e18a",
+    "packages/core/team-pr-report.mjs": "42780456cbcce30b6bf2b0d1f3c5618b74e5b7ed19f801825c310f1784c5774f",
+    "packages/core/team-contract-comparison.mjs": "d567e1f7569687891d84b01fc407b8c4f4da5f4e94f8252666ddf48b608db65e",
+    "packages/contract-engine/incremental-index.mjs": "94f0c28439d39ab0387bb4460e526529bb58a2cac6677bc66f69b84369b6e13f",
+    "src/local-mcp.ts": "166ba29049d1a0f7f922aa4cd56323a72e045ae25a2c83834a719571988aaec5",
+    "scripts/api-forge-server.mjs": "296f04317959954caa1d24b0f651e144e4f5bd61e8783452e7d8afdda2704734",
+    "scripts/dashboard-server.mjs": "05021f1a206bf655b53e08b8c796a56d3952afbd304322131fd3f8d6fd3fa221",
+    "cloud/worker.ts": "a53b2228a7aca136a3f1ecc05bd5b02acb3b035ad8d064eea5fb6f04afcc1230",
+    "ui/app.js": "22dd1b07db4e23c75fdde6df57497a24ce328eabef6e52c26413503e42102103",
+    "ui/workspace-app.js": "e2b1d0d93747818db3adcf4ae739e790191660d28339d6f7eeac1b852ff02fb1",
+    "sites/aipi-public/app/team/dashboard/page.tsx": "86173acdc5032eb6a755bf513e54d39eecf2a60e8f6ccf90b6fc32535f0ef122"
+  },
+  "testScriptCount": 14,
+  "tests": [
+    {
+      "command": "node tests/workspace-provider.test.mjs",
+      "exitCode": 0,
+      "completion": "WorkspaceProvider contract, LocalWorkspaceProvider, and TeamWorkspaceProvider passed all assertions"
+    },
+    {
+      "command": "node tests/workspace-app.test.mjs",
+      "exitCode": 0,
+      "completion": "Shared workspace tabs, project filtering, capability states, task detail and HTML escaping passed"
+    },
+    {
+      "command": "node tests/shared-ui-sync.test.mjs",
+      "exitCode": 0,
+      "completion": "Shared workspace presentation and styles are synchronized across local, IDE, and cloud surfaces"
+    },
+    {
+      "command": "node tests/verification-coverage.test.mjs",
+      "exitCode": 0,
+      "completion": "# duration_ms 60.440958"
+    },
+    {
+      "command": "node tests/assessment-proof.test.mjs",
+      "exitCode": 0,
+      "completion": "2 tests passed; final exit code 0 observed after polling the running process"
+    },
+    {
+      "command": "node tests/team-sync-client.test.mjs",
+      "exitCode": 0,
+      "completion": "Team sync dispatched graph edge review outbox operations"
+    },
+    {
+      "command": "node tests/team-sync-store.test.mjs",
+      "exitCode": 0,
+      "completion": "Team SQLite migration, outbox restart, retries, cursor, tombstones and snapshot recovery passed"
+    },
+    {
+      "command": "node tests/team-impact.test.mjs",
+      "exitCode": 0,
+      "completion": "Cross-repository impact, provenance, stale pins, rejection and corpus precision passed"
+    },
+    {
+      "command": "node tests/team-pr-report.test.mjs",
+      "exitCode": 0,
+      "completion": "Two-repository PR report requires explicit accepted proof before a pass"
+    },
+    {
+      "command": "node tests/task-proposals.test.mjs",
+      "exitCode": 0,
+      "completion": "AIPI MCP task proposals, cross-project impact proposal, and idempotent persistence passed"
+    },
+    {
+      "command": "node tests/team-memory.test.mjs",
+      "exitCode": 0,
+      "completion": "Team memory tests passed"
+    },
+    {
+      "command": "node tests/release-task-intents.test.mjs",
+      "exitCode": 0,
+      "completion": "Flexible task intents, commit pack, adaptive verification, and deployment gate passed"
+    },
+    {
+      "command": "node tests/team-contract-comparison.test.mjs",
+      "exitCode": 0,
+      "completion": "Bounded OpenAPI structural deltas distinguish breaking candidates, additive candidates and unresolved schemas"
+    },
+    {
+      "command": "node tests/mcp-handoff-lifecycle.test.mjs",
+      "exitCode": 0,
+      "completion": "MCP task handoff persistence and receipt-gated completion passed"
+    }
+  ],
+  "adversarialObservations": [
+    {
+      "id": "unsigned-repository-receipt",
+      "fixture": "Isolated temporary directory, synthetic project and 40-character revision; synthetic HTTP 200 health callback.",
+      "steps": [
+        "Write .aipi/verification-receipts.json containing {receipts:[{id:'repo-authored-receipt',taskId:'deploy',sourceRevision:'a'.repeat(40),status:'passed'}]}.",
+        "Construct project with matching sourceContext.gitRevision, registered temporary source root, configured test environment, no contracts and no receipts.",
+        "Call hydrateProjectTeamMemory(project), then evaluateDeploymentGate(project,{id:'deploy',contractIds:[]},{checkEnvironment:async()=>({status:200})})."
+      ],
+      "observed": {
+        "importedReceiptCount": 1,
+        "legacyPreflightUnlocked": true
+      },
+      "cleanup": "Temporary directory removed in finally.",
+      "limits": [
+        "No actual deployment was attempted.",
+        "The stricter verification-coverage ledger is a different path."
+      ]
+    },
+    {
+      "id": "advisory-handoff-propagation",
+      "fixture": "Synthetic task/review with AUDIT_UNVERIFIED_PROSE_MARKER.",
+      "steps": [
+        "Call formatTaskHandoff with marker in task.description and reviewedRelationships[].evidence.",
+        "Assert returned Markdown includes the marker."
+      ],
+      "observed": {
+        "markerPresent": true
+      },
+      "limits": [
+        "Does not establish system-prompt placement by a particular host.",
+        "Does not demonstrate an agent following injected instructions."
+      ]
+    }
+  ],
+  "boundaries": [
+    "Planning documents and this audit record only; no runtime fix was made by this audit.",
+    "No full npm test, typecheck/build, live GitHub/Supabase, deployment, installed-client or two-device acceptance run in this review.",
+    "Current source and historical evidence were read locally; historical release/deployment status was not independently reverified.",
+    "Passing focused component tests does not close D0-D5 or CR0-CR6.",
+    "These audit observations and planning prose must not be imported as authoritative product context or trusted execution receipts."
+  ]
+}

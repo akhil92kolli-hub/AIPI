@@ -1,0 +1,215 @@
+{
+  "name": "aipi",
+  "displayName": "AIPI - API Intelligence",
+  "description": "Local API intelligence, bounded agent context and verification inside VS Code and Cursor.",
+  "version": "0.3.12",
+  "publisher": "vmise",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AIPI-AI-Programming-Interface/AIPI.git",
+    "directory": "extensions/vscode"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "api",
+    "agent",
+    "mcp",
+    "cursor",
+    "contracts",
+    "testing"
+  ],
+  "main": "./src/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "icon": "media/aipi-logo.png",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": [
+    "onView:aipi.workspace",
+    "onCommand:aipi.initialize",
+    "onCommand:aipi.connectWorkspace",
+    "onCommand:aipi.openWide",
+    "onCommand:aipi.openDashboard",
+    "onCommand:aipi.openTeamCloud",
+    "onCommand:aipi.refresh",
+    "onCommand:aipi.rescan",
+    "onCommand:aipi.assessWorkingChanges",
+    "onCommand:aipi.openRepairHandoff",
+    "onCommand:aipi.reviewRequiredChecks",
+    "onCommand:aipi.inspectDeploymentBlocker"
+  ],
+  "scripts": {
+    "build": "node ../../scripts/sync-shared-ui.mjs && node scripts/build.cjs",
+    "test": "node ../../tests/vscode-extension-handoff.test.cjs",
+    "package": "npm run build && vsce package --no-dependencies --out dist/aipi.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.0.0"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aipi",
+          "title": "AIPI",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "aipi": [
+        {
+          "type": "webview",
+          "id": "aipi.workspace",
+          "name": "Workspace",
+          "contextualTitle": "AIPI Workspace",
+          "icon": "media/aipi-logo.png"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aipi.initialize",
+        "title": "AIPI: Initialize Current Workspace",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "aipi.connectWorkspace",
+        "title": "AIPI: Connect Current Workspace",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "aipi.openWide",
+        "title": "AIPI: Open Workspace in Editor",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "aipi.openDashboard",
+        "title": "AIPI: Open Full Workspace Panel",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "aipi.openTeamCloud",
+        "title": "AIPI: Share Current Workspace with Team",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "aipi.refresh",
+        "title": "AIPI: Refresh Panel",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aipi.rescan",
+        "title": "AIPI: Reindex Current Workspace",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "aipi.assessWorkingChanges",
+        "title": "AIPI: Assess Working Changes",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "aipi.openRepairHandoff",
+        "title": "AIPI: Open Repair Handoff",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "aipi.reviewRequiredChecks",
+        "title": "AIPI: Review Required Checks",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "aipi.inspectDeploymentBlocker",
+        "title": "AIPI: Inspect Deployment Blocker",
+        "icon": "$(shield)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aipi.openWide",
+          "when": "view == aipi.workspace",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aipi.refresh",
+          "when": "view == aipi.workspace",
+          "group": "navigation@2"
+        },
+        {
+          "command": "aipi.rescan",
+          "when": "view == aipi.workspace",
+          "group": "navigation@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aipi.initialize"
+        },
+        {
+          "command": "aipi.connectWorkspace"
+        },
+        {
+          "command": "aipi.openWide"
+        },
+        {
+          "command": "aipi.openDashboard"
+        },
+        {
+          "command": "aipi.openTeamCloud"
+        },
+        {
+          "command": "aipi.rescan"
+        },
+        {
+          "command": "aipi.assessWorkingChanges"
+        },
+        {
+          "command": "aipi.openRepairHandoff"
+        },
+        {
+          "command": "aipi.reviewRequiredChecks"
+        },
+        {
+          "command": "aipi.inspectDeploymentBlocker"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AIPI",
+      "properties": {
+        "aipi.agent.modelFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Optional preferred VS Code language-model family. Empty uses the first available IDE model."
+        },
+        "aipi.companion.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the local AIPI companion automatically when it is not running. A busy companion that times out is never replaced."
+        },
+        "aipi.companion.launchCommand": {
+          "type": "array",
+          "scope": "machine",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "User-level development override: command and arguments used instead of the bundled companion, for example [\"/usr/local/bin/node\", \"/path/to/AiPI/scripts/aipi-cli-bundle.mjs\", \"daemon\"]."
+        }
+      }
+    }
+  }
+}

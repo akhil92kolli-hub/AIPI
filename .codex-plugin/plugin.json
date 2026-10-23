@@ -1,7 +1,7 @@
 {
   "name": "aipi",
-  "version": "0.3.0+codex.20260923154446",
-  "description": "Runtime API intelligence for route tracing, contract diagnosis, regression fixtures, CI guards, and cross-repository blast-radius checks.",
+  "version": "0.4.5+codex.20261016",
+  "description": "Local-first API engineering for Codex: discover task context, hand off bounded evidence, run verification, inspect contracts, and work with the local AIPI companion.",
   "author": {
     "name": "Akhil Kolli"
   },
@@ -17,10 +17,16 @@
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
+  "requires_local_executor": true,
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/aipi-ide/SKILL.md"
+    }
+  },
   "interface": {
     "displayName": "AIPI",
     "shortDescription": "From failing API to verified code fix",
-    "longDescription": "Observe local API traffic, map frontend calls to backend routes and schemas, diagnose contract failures, generate native regression tests, guard pull requests, and check cross-repository blast radius through Codex.",
+    "longDescription": "AIPI is a local-first Codex IDE extension powered by a bundled local MCP server. Discover task context, persist a bounded handoff, inspect API routes and contracts, create verification plans, run tests, and review proof while Codex remains in control of repository edits. The optional AIPI Companion CLI and VS Code extension can share the same local workspace data.",
     "developerName": "Akhil Kolli",
     "category": "Developer Tools",
     "capabilities": [
@@ -29,13 +35,16 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Open my AIPI dashboard.",
+      "Open my AIPI workspace side panel.",
+      "Discover task context, save it in AIPI, and prepare a bounded handoff for this task.",
+      "Review the task verification plan, run the relevant checks, and save the result in AIPI.",
+      "Create an implementation task from this request and the current repository context.",
       "Trace this API route and compare its frontend and backend contracts.",
       "Diagnose my latest failed local request and generate a Vitest regression fixture.",
       "Check the cross-repository blast radius of this proposed API schema change."
     ],
     "brandColor": "#F97316",
-    "composerIcon": "./assets/icon.svg",
-    "logo": "./assets/icon.svg"
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
   }
 }

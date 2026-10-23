@@ -1,0 +1,13 @@
+create role anon;create role authenticated;create role service_role bypassrls;
+create schema private;
+create table public.team_workspaces(id uuid primary key,organization_id uuid,version bigint default 1,updated_at timestamptz default now());
+create table public.team_workspace_memberships(workspace_id uuid,user_id uuid,role text,primary key(workspace_id,user_id));
+create table public.organization_memberships(organization_id uuid,user_id uuid,role text,primary key(organization_id,user_id));
+create table public.team_workspace_projects(workspace_id uuid,project_key text,provider text,provider_repository_id text,repository text,remote_url text,repository_root text default '.',version bigint default 1,updated_at timestamptz default now(),primary key(workspace_id,project_key));
+create function private.can_access_team_workspace(p_id uuid) returns boolean language sql security definer as $$select exists(select 1 from public.team_workspace_memberships where workspace_id=p_id and user_id=nullif(current_setting('request.jwt.claim.sub',true),'')::uuid)$$;
+grant usage on schema public,private to authenticated,service_role;
+insert into team_workspaces(id,organization_id) values('11111111-1111-4111-a111-111111111111','22222222-2222-4222-a222-222222222222');
+insert into team_workspace_memberships values('11111111-1111-4111-a111-111111111111','33333333-3333-4333-a333-333333333333','owner'),('11111111-1111-4111-a111-111111111111','44444444-4444-4444-a444-444444444444','viewer');
+insert into organization_memberships values('22222222-2222-4222-a222-222222222222','33333333-3333-4333-a333-333333333333','owner'),('22222222-2222-4222-a222-222222222222','44444444-4444-4444-a444-444444444444','viewer');
+insert into team_workspace_projects(workspace_id,project_key,provider_repository_id,repository,remote_url) values('11111111-1111-4111-a111-111111111111','prj_api1234','123','acme/api','https://github.com/acme/api');
+insert into team_workspace_projects(workspace_id,project_key) values('11111111-1111-4111-a111-111111111111','prj_web1234');

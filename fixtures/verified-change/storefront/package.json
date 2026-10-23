@@ -1,0 +1,8 @@
+{
+  "name": "aipi-verified-change-storefront-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "tsx --test test/checkout.test.tsx" },
+  "dependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
+  "devDependencies": { "tsx": "^4.0.0" }
+}

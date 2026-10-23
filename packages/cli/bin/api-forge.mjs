@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -17,7 +18,7 @@ import { callTool, setAipiRuntime } from "../../../scripts/api-forge-server.mjs"
 const execFileAsync = promisify(execFile);
 
 function usage() {
-  return `AIPI CLI\n\nUsage:\n  aipi init [--root .]\n  aipi mcp\n  aipi daemon [--port 49152]\n  aipi status\n  aipi doctor [--root .]\n  aipi run [--root .] -- <command> [args...]\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://aipi.website/dashboard/]\n  aipi pair --access-token <token> [--relay https://relay.example]\n  aipi dev [--app http://localhost:8788/dashboard/]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n    aipi handoff latest [project-id]
+  return `AIPI CLI\n\nUsage:\n  aipi init [--root .]\n  aipi mcp\n  aipi daemon [--port 49152]\n  aipi status\n  aipi doctor [--root .]\n  aipi run [--root .] -- <command> [args...]\n  aipi observe --target <url> [--port 43128] [--root .]\n  aipi open [--app https://aipi.website/dashboard/]\n  aipi team [--root .] [--no-open]\n  aipi pair --access-token <token> [--relay https://relay.example]\n  aipi dev [--app http://localhost:8788/dashboard/]\n  aipi trace <url> [method] [root]\n  aipi diff <frontend-file> <backend-route> [method] [root]\n  aipi diagnose <route> [method] [root]\n  aipi fixture <route> [method] [root]\n  aipi guard [root]\n  aipi export <workspace.json> <project-id> [root]\n  aipi inspect [root]\n    aipi handoff latest [project-id]
     aipi handoff copy <handoff-id>
   `;
 }
@@ -43,7 +44,8 @@ async function findProjectRoot(start = ".") {
   let current = path.resolve(start);
   const home = path.resolve(os.homedir());
   while (true) {
-    if (current !== home && (await exists(path.join(current, ".git")) || await exists(path.join(current, "package.json")))) return current;
+    if (current !== home && (await exists(path.join(current, ".git")) || await exists(path.join(current, "package.json"))
+      || await exists(path.join(current, ".aipi")) || await exists(path.join(current, ".aipirc.json")))) return current;
     const parent = path.dirname(current);
     if (parent === current) throw new Error(`No project root found from ${path.resolve(start)}. Run AIPI from your project directory or pass --root <project-path>.`);
     current = parent;
@@ -86,7 +88,15 @@ async function connectProject(daemon, root) {
   const headers = { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" };
   const state = await fetchJson(`${daemon.url}/api/state`, { headers, timeout: 10000 });
   if (!state) throw new Error("Could not load companion state. Run the command again to reconnect.");
-  let project = state.projects.find((entry) => entry.sourceContext?.roots?.some((source) => path.resolve(source.path) === root));
+  const canonicalRoot = await fs.realpath(root).catch(() => path.resolve(root));
+  let project;
+  for (const candidate of state.projects) {
+    for (const source of candidate.sourceContext?.roots ?? []) {
+      const canonicalSource = await fs.realpath(source.path).catch(() => path.resolve(source.path));
+      if (canonicalSource === canonicalRoot) { project = candidate; break; }
+    }
+    if (project) break;
+  }
   if (!project) {
     project = await fetchJson(`${daemon.url}/api/projects`, { method: "POST", headers, timeout: 120000, body: JSON.stringify({ name: path.basename(root), workspacePath: root }) });
     if (!project?.id) throw new Error("Project registration failed. Companion is running; rerun setup to retry.");
@@ -124,16 +134,36 @@ async function writeConnectionDescriptor(value) {
 }
 
 async function probeDaemon({ cleanupStale = true } = {}) {
-  let descriptorFound = false;
+  let saved, descriptorText;
   try {
-    const saved = JSON.parse(await fs.readFile(connectionFile, "utf8"));
-    descriptorFound = true;
-    if (saved?.url && saved?.token) {
-      const connection = await fetchJson(`${saved.url}/api/connection`, { headers: { authorization: `Bearer ${saved.token}` } });
-      if (connection?.connected && connection.protocolVersion === DAEMON_PROTOCOL_VERSION) return { ...connection, token: saved.token, url: saved.url };
+    descriptorText = await fs.readFile(connectionFile, "utf8");
+    saved = JSON.parse(descriptorText);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw new Error("The AIPI companion descriptor cannot be read; it was preserved. Check the connection before starting another companion.");
+  }
+  if (descriptorText !== undefined && (!saved || typeof saved !== "object" || Array.isArray(saved))) throw new Error("Invalid AIPI companion descriptor; it was preserved.");
+  if (saved) {
+    let url;
+    try { url = new URL(saved.url); } catch { throw new Error("Invalid AIPI companion descriptor; it was preserved."); }
+    if (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password || !saved.token) throw new Error("Invalid AIPI companion descriptor; it was preserved.");
+    let response;
+    try {
+      response = await fetch(new URL("/api/connection", url), { headers: { authorization: `Bearer ${saved.token}` }, redirect: "error", signal: AbortSignal.timeout(2000) });
+    } catch (error) {
+      if (error?.cause?.code !== "ECONNREFUSED") throw new Error("AIPI companion did not respond; it may be busy. Its descriptor was preserved and no replacement was started.");
+      const pid = Number(saved.pid);
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        try { process.kill(pid, 0); throw new Error("AIPI companion process is still running but refused the connection; its descriptor was preserved."); }
+        catch (check) { if (check.code !== "ESRCH") throw check; }
+      } else throw new Error("AIPI companion refused the connection but its owner is unknown; its descriptor was preserved.");
+      if (cleanupStale && await fs.readFile(connectionFile, "utf8").catch(() => "") === descriptorText) await removeConnectionDescriptor(pid);
+      return null;
     }
-  } catch {}
-  if (descriptorFound && cleanupStale) await removeConnectionDescriptor().catch(() => {});
+    let connection;
+    try { connection = await response.json(); } catch { throw new Error("AIPI companion returned an invalid response; its descriptor was preserved."); }
+    if (!response.ok || !connection?.connected || connection.protocolVersion !== DAEMON_PROTOCOL_VERSION) throw new Error("AIPI companion is reachable but incompatible or authentication failed; its descriptor was preserved.");
+    return { ...connection, token: saved.token, url: saved.url };
+  }
   const ports = new Set([Number(process.env.AIPI_PORT || process.env.API_FORGE_PORT || DEFAULT_PORT)]);
   for (let port = DEFAULT_PORT; port <= MAX_PORT; port += 1) ports.add(port);
   for (const port of ports) {
@@ -147,20 +177,47 @@ async function probeDaemon({ cleanupStale = true } = {}) {
 
 async function acquireDaemonLock() {
   await fs.mkdir(path.dirname(connectionFile), { recursive: true, mode: 0o700 });
-  try {
-    await fs.mkdir(daemonLock, { mode: 0o700 });
-    await fs.writeFile(path.join(daemonLock, "owner.json"), `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`, { mode: 0o600 });
-    return true;
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
+  while (true) {
     try {
-      const stats = await fs.stat(daemonLock);
-      if (Date.now() - stats.mtimeMs > 30_000) {
-        await fs.rm(daemonLock, { recursive: true, force: true });
-        return acquireDaemonLock();
+      await fs.mkdir(daemonLock, { mode: 0o700 });
+      const owner = { pid: process.pid, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+      await fs.writeFile(path.join(daemonLock, "owner.json"), `${JSON.stringify(owner)}\n`, { mode: 0o600 });
+      return owner;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const stats = await fs.stat(daemonLock).catch((statError) => statError.code === "ENOENT" ? null : Promise.reject(statError));
+      if (!stats || Date.now() - stats.mtimeMs <= 30_000) return null;
+      const ownerText = await fs.readFile(path.join(daemonLock, "owner.json"), "utf8").catch((readError) => readError.code === "ENOENT" ? "" : Promise.reject(readError));
+      let owner;
+      try { owner = JSON.parse(ownerText); } catch {}
+      const ownerPid = Number(owner?.pid);
+      let ownerAlive = false;
+      if (Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+        try {
+          process.kill(ownerPid, 0);
+          ownerAlive = true;
+        } catch (probeError) {
+          ownerAlive = probeError.code !== "ESRCH";
+        }
       }
-    } catch {}
-    return false;
+      if (ownerAlive) return null;
+      const currentStats = await fs.stat(daemonLock).catch((statError) => statError.code === "ENOENT" ? null : Promise.reject(statError));
+      const currentOwnerText = await fs.readFile(path.join(daemonLock, "owner.json"), "utf8").catch((readError) => readError.code === "ENOENT" ? "" : Promise.reject(readError));
+      if (currentStats?.dev === stats.dev && currentStats?.ino === stats.ino && currentOwnerText === ownerText) {
+        await fs.rm(daemonLock, { recursive: true, force: true });
+      }
+    }
+  }
+}
+
+async function releaseDaemonLock(owner) {
+  if (!owner) return;
+  const ownerPath = path.join(daemonLock, "owner.json");
+  const current = await fs.readFile(ownerPath, "utf8").then((text) => {
+    try { return JSON.parse(text); } catch { return null; }
+  }).catch((error) => error.code === "ENOENT" ? null : Promise.reject(error));
+  if (current?.pid === owner.pid && current.id === owner.id) {
+    await fs.rm(daemonLock, { recursive: true, force: true });
   }
 }
 
@@ -177,28 +234,15 @@ async function waitForDaemon(timeoutMs = 15_000) {
 async function ensureDaemon({ quiet = false } = {}) {
   const running = await probeDaemon();
   if (running) return running;
-  const ownsLock = await acquireDaemonLock();
-  if (!ownsLock) {
-    const connection = await waitForDaemon();
-    if (connection) return connection;
-    if (!quiet) process.stderr.write("Another AIPI client started the daemon, but it did not become ready. Run `aipi doctor`.\n");
-    return null;
-  }
-  try {
-    const afterLock = await probeDaemon();
-    if (afterLock) return afterLock;
-    const child = spawn(process.execPath, [cliPath, "daemon"], {
+  const child = spawn(process.execPath, [cliPath, "daemon"], {
       cwd: process.cwd(),
       detached: true,
       stdio: "ignore",
       env: { ...process.env, AIPI_PORT: String(process.env.AIPI_PORT || DEFAULT_PORT), AIPI_MAX_PORT: String(process.env.AIPI_MAX_PORT || MAX_PORT) }
     });
-    child.unref();
-    const connection = await waitForDaemon();
-    if (connection) return connection;
-  } finally {
-    await fs.rm(daemonLock, { recursive: true, force: true }).catch(() => {});
-  }
+  child.unref();
+  const connection = await waitForDaemon();
+  if (connection) return connection;
   if (!quiet) process.stderr.write("AIPI daemon did not become ready on loopback. Try `aipi dev` for details.\n");
   return null;
 }
@@ -210,6 +254,12 @@ function appLaunchUrl(app, daemon, projectName) {
   if (projectName) params.set("project", projectName);
   base.hash = params.toString();
   return base.href;
+}
+
+function localAppLaunchUrl(daemon, projectName) {
+  const url = new URL("/launch", daemon.url);
+  if (projectName) url.searchParams.set("project", projectName);
+  return url.href;
 }
 
 function pairedAppLaunchUrl(app, pairing, projectName) {
@@ -266,11 +316,23 @@ async function main() {
       process.stdout.write(`AIPI daemon already active on ${existing.url}\n`);
       return;
     }
-    const port = option(args, "--port");
-    if (port) process.env.AIPI_PORT = port;
-    const dashboard = await startDashboard({ executeRequest, callTool });
-    setAipiRuntime(dashboard);
-    await writeConnectionDescriptor({ version: 1, pid: process.pid, url: dashboard.url, port: dashboard.port, token: dashboard.token, startedAt: new Date().toISOString() });
+    const owner = await acquireDaemonLock();
+    if (!owner) {
+      const running = await waitForDaemon();
+      if (!running) throw new Error("Another AIPI companion is starting but did not become ready; no replacement was started.");
+      process.stdout.write(`AIPI daemon already active on ${running.url}\n`);
+      return;
+    }
+    let dashboard;
+    try {
+      const running = await probeDaemon();
+      if (running) { process.stdout.write(`AIPI daemon already active on ${running.url}\n`); return; }
+      const port = option(args, "--port");
+      if (port) process.env.AIPI_PORT = port;
+      dashboard = await startDashboard({ executeRequest, callTool });
+      setAipiRuntime(dashboard);
+      await writeConnectionDescriptor({ version: 1, pid: process.pid, url: dashboard.url, port: dashboard.port, token: dashboard.token, startedAt: new Date().toISOString() });
+    } finally { await releaseDaemonLock(owner); }
     process.stdout.write(`AIPI daemon listening on ${dashboard.url}\n`);
     const close = () => dashboard.server.close(async () => { await removeConnectionDescriptor(process.pid).catch(() => {}); process.exit(0); });
     process.once("SIGINT", close);
@@ -385,6 +447,29 @@ async function main() {
     process.once("SIGTERM", close);
     return;
   }
+  if (command === "team") {
+    const root = await findProjectRoot(option(args, "--root", "."));
+    process.chdir(root);
+    const daemon = await ensureDaemon();
+    if (!daemon) throw new Error("AIPI daemon is not available");
+    const project = await connectProject(daemon, root);
+    const handoff = await fetchJson(`${daemon.url}/api/team-onboarding/start`, {
+      method: "POST", headers: { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ projectKey: project.id }), timeout: 10000,
+    });
+    if (!handoff?.ticket) throw new Error("The companion did not start Team Cloud pairing. Update and restart the AIPI companion, then retry.");
+    const app = new URL(option(args, "--app", "https://app.aipi.website/team"));
+    if (app.protocol !== "https:") throw new Error("Team Cloud must use HTTPS");
+    app.hash = new URLSearchParams({ project: handoff.projectKey, port: String(handoff.port), ticket: handoff.ticket }).toString();
+    process.stdout.write(`AIPI Team Cloud handoff ready for ${project.name} until ${handoff.expiresAt}.\n`);
+    if (!args.includes("--no-open")) {
+      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+      const openerArgs = process.platform === "win32" ? ["/c", "start", "", app.href.replace(/&/g, "^&")] : [app.href];
+      try { await execFileAsync(opener, openerArgs); }
+      catch { process.stderr.write("Browser could not open automatically. Run `aipi team` again to create a fresh handoff.\n"); }
+    }
+    return;
+  }
   if (command === "pair") {
     const root = await findProjectRoot(option(args, "--root", "."));
     process.chdir(root);
@@ -412,8 +497,13 @@ async function main() {
     const daemon = await ensureDaemon();
     if (!daemon) throw new Error("AIPI daemon is not available");
     const project = await connectProject(daemon, root);
-    const app = option(args, "--app", process.env.AIPI_APP_URL || "https://aipi.website/dashboard/");
-    const url = appLaunchUrl(app, daemon, project.id);
+    const requestedApp = option(args, "--app", process.env.AIPI_APP_URL);
+    let url;
+    if (command === "dev" && requestedApp) url = appLaunchUrl(requestedApp, daemon, project.id);
+    else if (requestedApp && new URL(requestedApp).origin !== daemon.url) {
+      process.stderr.write("Hosted dashboards cannot reliably call browser loopback from Codex. Opening the local dashboard instead; use `aipi pair` for the hosted dashboard.\n");
+      url = localAppLaunchUrl(daemon, project.id);
+    } else url = requestedApp ? appLaunchUrl(requestedApp, daemon, project.id) : localAppLaunchUrl(daemon, project.id);
     process.stdout.write(`AIPI Local Companion active on ${daemon.url}\nOpening ${url}\n`);
     if (command === "open" && !args.includes("--no-open")) {
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";

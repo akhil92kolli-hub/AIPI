@@ -89,8 +89,18 @@ function fastApiValidation(text, handler) {
 
 function linkedZodValidation(text, handler, schemas) {
   if (!schemas.length) return null;
-  const window = text.slice(handler.index, Math.min(text.length, handler.index + 5000));
-  const referenced = schemas.find((schema) => new RegExp(`\\b${schema.name}\\s*\\.\\s*(?:parse|safeParse|parseAsync|safeParseAsync)\\s*\\(`).test(window));
+  const routeWindow = text.slice(handler.index, Math.min(text.length, handler.index + 5000));
+  const candidateWindows = [routeWindow];
+  const registration = routeWindow.slice(0, routeWindow.indexOf(");") >= 0 ? routeWindow.indexOf(");") + 2 : 1000);
+  for (const identifier of registration.matchAll(/[,()]\s*([A-Za-z_$][\w$]*)\s*(?=[,)])/g)) {
+    const name = identifier[1];
+    const definition = new RegExp(`(?:function\\s+${name}\\b|(?:const|let|var)\\s+${name}\\s*=)`).exec(text);
+    if (definition) candidateWindows.push(text.slice(definition.index, Math.min(text.length, definition.index + 5000)));
+  }
+  const referenced = schemas.find((schema) => candidateWindows.some((window) =>
+    new RegExp(`\\b${schema.name}\\s*\\.\\s*(?:parse|safeParse|parseAsync|safeParseAsync)\\s*\\(`).test(window)
+    || new RegExp(`\\b(?:zValidator|validator)\\s*\\([^,]+,\\s*${schema.name}\\b`).test(window)
+  ));
   return referenced ? { ...referenced, source: `${handler.adapter}-handler-reference` } : null;
 }
 

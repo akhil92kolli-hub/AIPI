@@ -1,0 +1,17 @@
+{
+  "name": "ai-pi-showcase",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "deploy": "npm run build && npx wrangler deploy --config ./wrangler.jsonc --no-autoconfig"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "wrangler": "^4.136.2"
+  }
+}

@@ -11,6 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: akhil92kolli-hub/AIPI@main
+      - uses: AIPI-AI-Programming-Interface/AIPI@main
         with:
           root: .

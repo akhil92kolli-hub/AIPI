@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-22",
+  "scope": "D1 Team PR candidate assessment, selected OpenAPI 3 JSON structure and mocked route revocation",
+  "sourceSha256": {
+    "packages/core/team-change-assessment.mjs": "cbec94d52c3a81b6213bc000763c9548faa280a294fb674f0428ca6c3295b83b",
+    "packages/core/team-contract-comparison.mjs": "30c23d154cae1ff2ce936ba931f4f870aa087cc9fabbbf65f02c9d8c71bd17b3",
+    "cloud/worker.ts": "34a7785542e8fa73f56dda54d90779aa14afbcce3dbaf27348be447ff73e0c82",
+    "ui/workspace-app.js": "8b3576a706ca9c9d333c6e1af24335e2cbda4720e8d83c8522e3c095f8a14c39",
+    "sites/aipi-public/app/team/dashboard/page.tsx": "39dc811ab4821c7bcc2a68b3e3ffef118e096af43af3c4069c6dee4c71bd8075"
+  },
+  "checks": [
+    {"command": "node tests/team-change-assessment.test.mjs", "result": "passed", "observed": "separate React and Billing checks, owner gap and owner assignment; revoked project nodes, edges, names and checks removed"},
+    {"command": "node tests/team-contract-comparison.test.mjs", "result": "passed", "observed": "selected response property removal and required request property addition identified; external schema left partial"},
+    {"command": "npm run test:cloud", "result": "passed", "observed": "pinned PR OpenAPI structural comparison; consumer revocation removed its candidate and check from assessment, graph feed and impact query; source revocation returned 403 before comparison and impact; cross-origin graph token header preflight accepted"},
+    {"command": "node tests/workspace-app.test.mjs", "result": "passed", "observed": "candidate state remains unknown while checks, counts and structural changes render"},
+    {"command": "npm test", "result": "passed", "observed": "full root suite, including cloud smoke; new domain tests were added to test:team-sync afterward and that script was run separately"},
+    {"command": "npm run test:team-sync", "result": "passed", "observed": "Team tests including new assessment and OpenAPI comparison"},
+    {"command": "npx tsc --noEmit && ./node_modules/.bin/tsc --noEmit -p sites/aipi-public/tsconfig.json", "result": "passed"},
+    {"command": "npm run build (sites/aipi-public)", "result": "passed"}
+  ],
+  "limits": [
+    "Only up to five changed OpenAPI JSON files are inspected; YAML, composed/external schemas and other contract formats remain unknown or partial.",
+    "Structural breaking/additive labels are candidates, not proven compatibility for deployed consumers.",
+    "The Team ledger uses the common five-state projector but does not yet import accepted execution receipts or establish exact common target identities.",
+    "Independent consumer discovery beyond the existing authorized graph is incomplete; owner IDs come from graph nodes and missing owners are visible.",
+    "Revocation acceptance used mocked GitHub and data API responses, not a disposable live Supabase REST/RPC/Storage/Realtime stack. Graph publication/review, PR report and other workspace endpoints still need a complete resource-rights audit.",
+    "D0-D6 delivery gates remain open."
+  ]
+}

@@ -1,5 +1,7 @@
 # AIPI development roadmap
 
+Current planning entry point: [trusted cross-repository change and release plan — 23 October 2026](AIPI-TRUSTED-CROSS-REPO-RELEASE-PLAN-2026-10-23.md). The version milestones below are historical. Use the linked plan for current trust, source-aware sync, impact, MCP, merge and deployment gates; use the [workflow contract](AIPI-WORKFLOW-ACCEPTANCE-2026-10-23.md) for canonical identities.
+
 This document tracks implementation against the Local Companion + Remote MCP product plan.
 
 ## Current milestone: 0.3 foundation
@@ -35,6 +37,10 @@ Implemented:
 - Structurally anonymized fixture and observed-test generation with explicit field preservation
 - Cross-platform deterministic and loopback integration CI on Linux, macOS, and Windows
 - Atomic daemon descriptors, stale-state recovery, startup locking, and `aipi status` / `aipi doctor` diagnostics
+- Opt-in outbound dashboard pairing over role-separated, ten-minute Cloudflare Durable Object WebSocket sessions; the relay stores no project evidence and cannot invoke MCP tools
+- Incremental, content-hashed source indexing that reuses derived metadata for unchanged monorepo files without caching source text
+- Handler-linked Zod extraction plus Fastify JSON Schema and FastAPI Pydantic request-body extraction
+- Supabase OAuth protected-resource discovery, organization membership roles, role-aware RLS, and explicit organization retention controls
 
 In progress for 0.3:
 
@@ -42,7 +48,7 @@ In progress for 0.3:
 - Add cURL and Postman import
 - Add multipart and binary bodies
 - Add credential lifecycle cleanup and provider migration diagnostics
-- Expand validation extraction inside Express, Hono, Fastify, and FastAPI handlers
+- Expand validation extraction to imported/cross-file validators and framework plugin registries
 - Add PostgreSQL migration and live-local-database schema adapters
 
 ## Next milestone slices
@@ -66,10 +72,10 @@ In progress for 0.3:
 
 ### 0.4 — team alpha
 
-- OAuth 2.1 resource-server metadata and production identity
+- Complete CLI PKCE login and OAuth token refresh/rotation
 - CI contract upload keyed by repository and Git commit SHA
 - GitHub App review comments and check summaries
 - Versioned dependency graph with branch-to-branch blast-radius checks
-- Retention, audit log, and organization administration
+- Organization invitation UI, ownership transfer, scheduled retention execution, and RLS allow/deny tests
 
 Billing, hosted request execution, and private runners remain deferred until private-beta demand gates are met.

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Authorize access — AIPI</title><link rel="stylesheet" href="/styles.css">
+  <link rel="icon" type="image/png" href="/aipi-logo.png">
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="/"><span class="brand-mark"><i></i><i></i></span><span><span class="logo-letter">A</span><span class="logo-neutral">i</span>-<span class="logo-letter">PI</span></span></a><nav><a href="/">Home</a><a href="/product.html">Product</a></nav><a class="header-cta" href="/support.html">Support ↗</a></header>
+  <main class="auth-layout">
+    <section class="auth-card" aria-labelledby="consentTitle">
+      <p class="eyebrow"><span></span> Connected account</p>
+      <h1 id="consentTitle">Authorize access.</h1>
+      <p id="consentIntro">Loading the authorization request…</p>
+      <div class="consent-client" id="consentDetails" hidden>
+        <strong id="clientName"></strong>
+        <code id="redirectUri"></code>
+        <ul class="consent-scopes" id="scopeList"></ul>
+      </div>
+      <div class="consent-actions" id="consentActions" hidden>
+        <button class="button button-secondary" id="denyButton" type="button">Deny</button>
+        <button class="button button-dark" id="approveButton" type="button">Authorize <span>↗</span></button>
+      </div>
+      <p class="auth-message" id="consentMessage" role="status"></p>
+    </section>
+  </main>
+  <script src="/config.js"></script><script type="module" src="/oauth-consent.js"></script>
+</body>
+</html>

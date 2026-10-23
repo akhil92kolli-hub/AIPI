@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-22",
+  "baseCommit": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "sourceState": "dirty working checkout; changed files listed below were untracked in this checkout",
+  "capability": "Read-only staged-only Git comparison in local assessment, MCP schema and Explore/Tools form",
+  "filesSha256": {
+    "packages/core/change-diff.mjs": "e6b9c15909c3d844dddffc1b55e84bc3d9b91224b6cd8ba8c4748f87652c7858",
+    "packages/core/change-assessment-tools.mjs": "aa55cfdea012d53b5d41370e540e20ee70e3422f29508e35b973417e855e3e27",
+    "ui/change-assessment-view.js": "bee6f98db29592ee0fef3b19405e4fc4851eaf2add76bed4693b7466f64258ca",
+    "ui/workspace-app.js": "796bd10e2b5cc9b25f85435b6bfb40fa1d247c3201e405051ef9acbdab3af768",
+    "tests/change-diff.test.mjs": "f8d650445c9bd3c243fae39dbe4c60470012f029ef81b41d31b8f0f19531fac2",
+    "tests/change-assessment.test.mjs": "c37e68e9f2ae21353befd766057ce2822d8b0c7b74ea5296290192541b7ba9ae",
+    "tests/change-assessment-view.test.mjs": "5416eafd16d01ca5219f7066ddf2f46fa1d31242a8ccb7bdb9dd831912f32e7c"
+  },
+  "checks": [
+    { "command": "node --test tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/change-assessment-view.test.mjs tests/change-assessment-route.test.mjs", "result": "18 passed, 0 failed" },
+    { "command": "npm test", "result": "passed; source-index, workspaces, Team sync, regression, UI, setup, handshake, integration and cloud smoke" },
+    { "command": "npm run typecheck", "result": "passed" },
+    { "command": "npm run build:ui", "result": "passed" },
+    { "command": "npm run build:local", "result": "passed; staged mode present in bundled MCP executable" },
+    { "command": "npm run build:extension", "result": "passed; IDE extension assets and bridge validated" }
+  ],
+  "observedBehavior": [
+    "Staged mode excludes later unstaged and untracked edits from its file inventory and source fingerprint.",
+    "Changing the Git index changes the source fingerprint and assessment plan target.",
+    "The local result labels staged changes separately from combined working changes."
+  ],
+  "limitations": [
+    "Comparison is file-level; indexed targets in a changed file are potential impacts, not changed-symbol proof.",
+    "This does not add a separate unstaged-only mode or live PR/head integration.",
+    "The complete D1 gate, Team parity, runtime relevance and browser/keyboard acceptance remain open."
+  ]
+}

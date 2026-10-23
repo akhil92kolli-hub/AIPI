@@ -1,0 +1,240 @@
+.context-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.context-actions button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  font-size: 10px;
+}
+
+.tabs {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.tabs button {
+  gap: 2px;
+  font-size: 9px;
+}
+
+.editor-form {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.form-label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.form-label > small,
+.planned-fields > small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.form-control {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.form-control:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.planned-fields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.planned-fields[hidden] {
+  display: none;
+}
+
+.planned-fields legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.check-list {
+  display: grid;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.check-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px;
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 10px;
+}
+
+.check-list label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.compact-list {
+  display: grid;
+  gap: 5px;
+  margin: 12px 0;
+}
+
+.compact-list h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 3px;
+  font-size: 12px;
+}
+
+.compact-list h2 small,
+.empty-inline,
+.compact-row small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.compact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.row-main {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.row-main strong {
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.row-main small {
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.icon-action {
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  font-size: 9px;
+}
+
+.detail-value {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.contract-mini {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+}
+
+.contract-mini b,
+.contract-mini small {
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.criteria-list {
+  padding-left: 18px;
+  font-size: 10px;
+}
+
+.criteria-list li {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+
+.method-chip {
+  color: var(--vscode-textLink-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 9px;
+}
+
+.danger-link {
+  color: var(--danger);
+}
+
+.mcp-output pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 9px;
+}
+
+.task-form-error {
+  color: var(--danger);
+}
+
+@media (max-width: 360px) {
+  .tabs button {
+    font-size: 8px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

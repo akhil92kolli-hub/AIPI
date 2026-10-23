@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" class="aipi-ide">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} data:; style-src {{CSP_SOURCE}}; script-src 'nonce-{{NONCE}}'; connect-src 'none';">
+  <link rel="stylesheet" href="{{STYLE_URI}}">
+  <link rel="stylesheet" href="{{WORKSPACE_STYLE_URI}}">
+  <link rel="icon" type="image/png" href="{{LOGO_URI}}">
+  <title>AIPI — AI-Programming Interface</title>
+</head>
+<body data-aipi-channel="aipi.ide.v1">
+  <div id="app" class="app-loading" aria-live="polite">Loading AIPI…</div>
+  <dialog id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <form method="dialog" class="modal-sheet">
+      <header class="modal-header"><h2 id="modalTitle"></h2><button class="quiet-button" value="cancel" formnovalidate>Close</button></header>
+      <div id="modalBody" class="modal-body"></div>
+      <footer class="modal-actions"><button class="secondary-button" value="cancel" formnovalidate>Cancel</button><button class="primary-button" id="modalConfirm" value="default">Save</button></footer>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script nonce="{{NONCE}}">window.__AIPI_LOGO__="{{LOGO_URI}}";window.__AIPI_FIGMA_ASSET_BASE__="{{FIGMA_ASSET_BASE_URI}}";</script>
+  <script nonce="{{NONCE}}" type="module" src="{{SCRIPT_URI}}"></script>
+</body>
+</html>

@@ -67,7 +67,8 @@ export function astRouteInfo({ file, text, method }) {
     const variableHandler = sourceFile.getVariableDeclarations().find((candidate) => candidate.getName() === exportedMethod && candidate.getVariableStatement()?.isExported() && [SyntaxKind.ArrowFunction, SyntaxKind.FunctionExpression].includes(candidate.getInitializer()?.getKind()));
     const handler = functionHandler ?? variableHandler;
     return {
-      handler: handler ? { line: handler.getStartLineNumber(), export: String(method).toUpperCase() } : null,
+      handler: handler ? { line: handler.getStartLineNumber(), endLine: handler.getEndLineNumber(),
+        export: String(method).toUpperCase() } : null,
       schemas: zodSchemas(sourceFile),
       parser: "ts-morph",
     };

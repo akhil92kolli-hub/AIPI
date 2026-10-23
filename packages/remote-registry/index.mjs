@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { normalizeRoute } from "../core/index.mjs";
+import { breakingChangeForConsumer, contractChanges, normalizeContract, normalizeRepository, normalizeRoute } from "../contract-domain/index.js";
 
 function keyFor(contract) {
-  return `${contract.organizationId}:${contract.repository}:${String(contract.method).toUpperCase()}:${normalizeRoute(contract.route)}`;
+  return `${contract.organizationId}:${normalizeRepository(contract.repository)}:${String(contract.method).toUpperCase()}:${normalizeRoute(contract.route)}:${contract.direction ?? contract.schema?.direction ?? "request"}`;
 }
 
 export class FileRegistry {
@@ -46,7 +46,7 @@ export class FileRegistry {
 
   async listVersions({ organizationId, repository, method, route } = {}) {
     const state = await this.read();
-    return state.versions.filter((entry) => (!organizationId || entry.organizationId === organizationId) && (!repository || entry.repository === repository) && (!method || entry.method === String(method).toUpperCase()) && (!route || entry.route === normalizeRoute(route))).sort((left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)));
+    return state.versions.filter((entry) => (!organizationId || entry.organizationId === organizationId) && (!repository || normalizeRepository(entry.repository) === normalizeRepository(repository)) && (!method || entry.method === String(method).toUpperCase()) && (!route || entry.route === normalizeRoute(route))).sort((left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)));
   }
 
   async listAudit(organizationId, limit = 100) {
@@ -64,9 +64,9 @@ export class SupabaseRegistry {
 
   async upsert(contract) {
     const value = normalizeContract(contract);
-    const response = await fetch(`${this.url}/rest/v1/api_contracts?on_conflict=organization_id,repository,method,route`, {
+    const response = await fetch(`${this.url}/rest/v1/api_contracts?on_conflict=organization_id,repository,method,route,direction`, {
       method: "POST", headers: { ...this.headers, prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify({ organization_id: value.organizationId, repository: value.repository, method: value.method, route: value.route, revision: value.revision, source_file: value.source?.file ?? null, source_line: value.source?.line ?? null, schema: value.schema, consumers: value.consumers })
+      body: JSON.stringify({ organization_id: value.organizationId, repository: value.repository, method: value.method, route: value.route, direction: value.direction, revision: value.revision, source_file: value.source?.file ?? null, source_line: value.source?.line ?? null, schema: value.schema, consumers: value.consumers })
     });
     if (!response.ok) throw new Error(`Supabase registry returned HTTP ${response.status}: ${await response.text()}`);
     return value;
@@ -80,7 +80,7 @@ export class SupabaseRegistry {
   }
 
   async listVersions({ organizationId, repository, method, route } = {}) {
-    const filters = [organizationId && `organization_id=eq.${encodeURIComponent(organizationId)}`, repository && `repository=eq.${encodeURIComponent(repository)}`, method && `method=eq.${encodeURIComponent(String(method).toUpperCase())}`, route && `route=eq.${encodeURIComponent(normalizeRoute(route))}`].filter(Boolean).join("&");
+    const filters = [organizationId && `organization_id=eq.${encodeURIComponent(organizationId)}`, repository && `repository=eq.${encodeURIComponent(normalizeRepository(repository))}`, method && `method=eq.${encodeURIComponent(String(method).toUpperCase())}`, route && `route=eq.${encodeURIComponent(normalizeRoute(route))}`].filter(Boolean).join("&");
     const response = await fetch(`${this.url}/rest/v1/api_contract_versions?select=*&order=created_at.desc${filters ? `&${filters}` : ""}`, { headers: this.headers });
     if (!response.ok) throw new Error(`Supabase registry versions returned HTTP ${response.status}: ${await response.text()}`);
     return (await response.json()).map((entry) => ({ ...normalizeContract({ organizationId: entry.organization_id, repository: entry.repository, method: entry.method, route: entry.route, revision: entry.revision, source: { file: entry.source_file, line: entry.source_line }, schema: entry.schema, consumers: entry.consumers }), versionId: entry.id, contentHash: entry.content_hash, publishedAt: entry.created_at, publishedBy: entry.published_by ?? null }));
@@ -94,38 +94,22 @@ export class SupabaseRegistry {
   }
 }
 
-export function normalizeContract(contract) {
-  if (!contract?.organizationId || !contract?.repository || !contract?.route || !contract?.method) throw new Error("organizationId, repository, route, and method are required");
-  return { organizationId: String(contract.organizationId), repository: String(contract.repository), method: String(contract.method).toUpperCase(), route: normalizeRoute(contract.route), revision: contract.revision ? String(contract.revision) : "working-tree", source: contract.source ?? null, schema: { fields: (contract.schema?.fields ?? []).map((field) => ({ name: String(field.name), type: String(field.type), required: field.required !== false })) }, consumers: (contract.consumers ?? []).map((consumer) => ({ repository: String(consumer.repository), file: String(consumer.file), line: Number(consumer.line ?? 1), fields: (consumer.fields ?? []).map((field) => ({ name: String(field.name), type: String(field.type), required: field.required !== false })) })), updatedAt: new Date().toISOString() };
-}
-
-export function contractChanges(previous, proposed) {
-  const before = new Map((previous?.schema?.fields ?? []).map((field) => [field.name, field]));
-  const after = new Map((proposed?.schema?.fields ?? []).map((field) => [field.name, field]));
-  const changes = [];
-  for (const [name, field] of before) {
-    const next = after.get(name);
-    if (!next) changes.push({ field: name, kind: "removed", before: field.type, after: null });
-    else if (field.type !== next.type) changes.push({ field: name, kind: "type-changed", before: field.type, after: next.type });
-    else if (field.required !== next.required) changes.push({ field: name, kind: "required-changed", before: field.required, after: next.required });
-  }
-  for (const [name, field] of after) if (!before.has(name) && field.required) changes.push({ field: name, kind: "required-added", before: null, after: field.type });
-  return changes;
-}
+export { contractChanges, normalizeContract } from "../contract-domain/index.js";
 
 export async function checkBlastRadius(registry, proposed) {
   const contracts = await registry.list(proposed.organizationId);
   const route = normalizeRoute(proposed.route);
-  const providers = contracts.filter((entry) => entry.method === String(proposed.method).toUpperCase() && entry.route === route);
-  const baseline = providers.find((entry) => entry.repository === proposed.repository) ?? providers[0] ?? null;
-  const changes = contractChanges(baseline, normalizeContract({ ...proposed, consumers: proposed.consumers ?? [] }));
+  const normalized = normalizeContract({ ...proposed, consumers: proposed.consumers ?? [] });
+  const providers = contracts.filter((entry) => entry.method === normalized.method && normalizeRoute(entry.route) === route && (entry.direction ?? entry.schema?.direction ?? "request") === normalized.direction);
+  const baseline = providers.find((entry) => normalizeRepository(entry.repository) === normalized.repository && (entry.direction ?? entry.schema?.direction ?? "request") === normalized.direction) ?? providers[0] ?? null;
+  const changes = contractChanges(baseline, normalized);
   const impacts = [];
   for (const provider of providers) {
     for (const consumer of provider.consumers ?? []) {
       for (const change of changes) {
         const expected = consumer.fields.find((field) => field.name === change.field);
-        if (!expected) continue;
-        if (["removed", "type-changed"].includes(change.kind) || (change.kind === "required-changed" && change.after === false && expected.required)) impacts.push({ repository: consumer.repository, file: consumer.file, line: consumer.line, field: change.field, change: change.kind, expected: expected.type, proposed: change.after, message: `${change.field} ${change.kind.replaceAll("-", " ")} will break ${consumer.repository} (${consumer.file}:${consumer.line}).` });
+        const unsafe = breakingChangeForConsumer(change, expected);
+        if (unsafe) impacts.push({ repository: consumer.repository, file: consumer.file, line: consumer.line, field: change.field, change: change.kind, expected: expected?.type ?? null, proposed: change.after, message: `${change.field} ${change.kind.replaceAll("-", " ")} will break ${consumer.repository} (${consumer.file}:${consumer.line}).` });
       }
     }
   }

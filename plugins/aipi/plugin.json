@@ -1,0 +1,10 @@
+{
+  "name": "aipi",
+  "description": "AIPI API Intelligence: AST route tracing, blast-radius verification, contract synthesis, and bounded agent handoffs.",
+  "logo": "assets/icon.svg",
+  "suggestedPrompts": [
+    "Discover and map all API endpoints in this repository",
+    "Check the cross-repo blast radius of this API schema change",
+    "Verify the implementation against the AIPI contract revision"
+  ]
+}

@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const exec = promisify(execFile);
+const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'aipi-publish-review-'));
+const source = path.join(temp, 'source');
+const remote = path.join(temp, 'remote.git');
+process.env.AIPI_DATA = path.join(temp, 'data');
+process.env.AIPI_PORT = '0';
+process.env.AIPI_MAX_PORT = '0';
+const git = async (...args) => (await exec('git', ['-C', source, ...args])).stdout.trim();
+const { mutateState, defaultProject } = await import('../scripts/workspace-store.mjs');
+const { startDashboard } = await import('../scripts/dashboard-server.mjs');
+let dashboard;
+try {
+  await fs.mkdir(source);
+  await exec('git', ['init', '--bare', remote]);
+  await exec('git', ['init', '-b', 'main', source]);
+  await git('config', 'user.name', 'AIPI test');
+  await git('config', 'user.email', 'test@example.invalid');
+  await fs.writeFile(path.join(source, 'api.txt'), 'baseline\n');
+  await git('add', 'api.txt');
+  await git('commit', '-m', 'baseline');
+  await git('remote', 'add', 'origin', remote);
+  await git('push', '-u', 'origin', 'main');
+  await fs.writeFile(path.join(source, 'api.txt'), 'changed contract\n');
+  await git('add', 'api.txt');
+  await git('commit', '-m', 'change contract');
+  const expectedCommit = await git('rev-parse', 'HEAD');
+  await mutateState(state => {
+    const project = defaultProject('Orders');
+    project.id = 'orders'; project.requests = [];
+    project.sourceContext.roots = [{ kind: 'workspace', path: source, resourceId: 'src_orders' }];
+    project.gitBinding = { sourceRoot: source, repositoryRoot: source, remoteName: 'origin', targetBranch: 'main', repositoryUrl: remote };
+    state.projects = [project]; state.activeProjectId = project.id;
+    state.workspaceGroups = [{ id: 'wsg_publish_test', name: 'Publish test', projectIds: ['orders'], version: 1 }];
+  });
+  dashboard = await startDashboard({ executeRequest: async () => ({ ok: true }) });
+  const headers = { authorization: `Bearer ${dashboard.token}`, 'content-type': 'application/json' };
+  const request = async (endpoint, payload) => {
+    const response = await fetch(`${dashboard.url}${endpoint}`, { method: 'POST', headers, body: JSON.stringify(payload) });
+    return { status: response.status, body: await response.json() };
+  };
+  const selection = { projectId: 'orders', root: source };
+  const first = await request('/api/git/publish-plan', selection);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.canPublish, true);
+  assert.equal(first.body.commit, expectedCommit);
+  assert.equal(first.body.impactReview.status, 'unknown');
+  assert.ok(first.body.reviewToken);
+  const withoutAcknowledgment = await request('/api/git/publish', { ...selection, expectedCommit, confirm: 'PUBLISH', reviewToken: first.body.reviewToken });
+  assert.equal(withoutAcknowledgment.status, 400);
+  assert.equal(withoutAcknowledgment.body.code, 'IMPACT_ACKNOWLEDGMENT_REQUIRED');
+  const withoutReview = await request('/api/git/publish', { ...selection, expectedCommit, confirm: 'PUBLISH', acknowledgeImpact: true });
+  assert.equal(withoutReview.status, 409);
+  assert.equal(withoutReview.body.code, 'IMPACT_REVIEW_CHANGED');
+  await mutateState(state => { state.workspaceGroups[0].version += 1; });
+  const staleReview = await request('/api/git/publish', { ...selection, expectedCommit, confirm: 'PUBLISH', acknowledgeImpact: true, reviewToken: first.body.reviewToken });
+  assert.equal(staleReview.status, 409, JSON.stringify(staleReview.body));
+  const current = await request('/api/git/publish-plan', selection);
+  const published = await request('/api/git/publish', { ...selection, expectedCommit, confirm: 'PUBLISH', acknowledgeImpact: true, createFollowUpTasks: true, reviewToken: current.body.reviewToken });
+  assert.equal(published.status, 200, JSON.stringify(published.body));
+  assert.equal(published.body.followUpTasks.proposedCount, 0);
+  assert.equal((await exec('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/main'])).stdout.trim(), expectedCommit);
+  console.log('Git publish requires current impact acknowledgment and rejects changed workspace scope');
+} finally {
+  if (dashboard) await new Promise(resolve => dashboard.server.close(resolve));
+  await fs.rm(temp, { recursive: true, force: true });
+}

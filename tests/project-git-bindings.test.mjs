@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import {projectGitBinding,projectGitBindings,saveProjectGitBinding} from "../packages/core/project-git-bindings.mjs";
+const primary={sourceRoot:"/repo/api",repositoryUrl:"https://github.com/acme/api",targetBranch:"main"};
+const project={gitBinding:primary};
+assert.equal(projectGitBinding(project,"/repo/web"),null,"Another source must not inherit the primary remote");
+saveProjectGitBinding(project,{sourceRoot:"/repo/web",repositoryUrl:"https://github.com/acme/web",targetBranch:"dev"});
+assert.equal(project.gitBinding,primary,"Adding a resource preserves the primary mapping");
+assert.equal(projectGitBindings(project).length,2);
+assert.equal(projectGitBinding(project,"/repo/web/").targetBranch,"dev");
+saveProjectGitBinding(project,{...primary,targetBranch:"release"});
+assert.equal(project.gitBinding.targetBranch,"release");
+assert.equal(projectGitBinding(project,"/repo/web").targetBranch,"dev");
+assert.equal(projectGitBindings(project).length,2);
+console.log("Per-source Git bindings preserve other resources and reject implicit remote inheritance");

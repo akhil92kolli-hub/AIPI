@@ -14,6 +14,65 @@ import { checkBlastRadius, FileRegistry } from "../packages/remote-registry/inde
 import { createRemoteMcpServer } from "./remote-mcp-server.mjs";
 import { createLinuxSecretServiceVault, createWindowsCredentialVault, hydrateStateSecrets, isSecretReference, protectStateSecrets, redactStateSecrets } from "../packages/core/secret-vault.mjs";
 import { createTimelineEvent, migrateTimeline } from "../packages/core/timeline.mjs";
+import { aggregateVerificationStatus, buildTaskContext, verificationPlan } from "../packages/core/task-context.mjs";
+import { executeSaved, parseEnvironmentFile } from "./dashboard-server.mjs";
+
+const boundedTaskContext = buildTaskContext({
+  id: "project-context-test",
+  name: "Context test",
+  tasks: [{ id: "task-context-test", title: "Inspect orders", artifactIds: ["endpoint:orders"], requestIds: [], findingIds: [], verificationRunIds: ["run-context-test"], runtimeEvidenceIds: ["runtime-evidence-context-test"], runtimeFindings: [{ id: "runtime-finding-context-test", title: "POST /api/orders: HTTP 404", severity: "medium", evidenceIds: ["runtime-evidence-context-test"] }] }],
+  requests: [],
+  verificationRuns: [{ id: "run-context-test", taskId: "task-context-test", checks: [{ evidenceId: "evidence-context-test" }] }],
+  sourceContext: {
+    lastScannedAt: "2026-02-01T00:00:00.000Z",
+    endpoints: [{ id: "orders", name: "Create order", method: "POST", path: "/api/orders", source: "src/orders.ts", root: "/workspace" }],
+    artifacts: [],
+    integrations: []
+  }
+}, "task-context-test", 2400);
+assert.equal(boundedTaskContext.telemetry.tokenBudget, 2400);
+assert.equal(boundedTaskContext.artifacts[0].provenance.kind, "static-analysis");
+assert.equal(boundedTaskContext.artifacts[0].relationship, "manually-linked");
+assert.deepEqual(boundedTaskContext.evidenceIds.sort(), ["evidence-context-test", "runtime-evidence-context-test"]);
+assert.equal(boundedTaskContext.findings[0].provenance, "runtime-observation");
+assert.ok(boundedTaskContext.telemetry.estimatedTokens <= boundedTaskContext.telemetry.tokenBudget);
+
+assert.equal(aggregateVerificationStatus([{ required: true, status: "passed", evidenceId: "evidence-1" }]), "passed");
+assert.equal(aggregateVerificationStatus([{ required: true, status: "passed" }]), "partial");
+assert.equal(aggregateVerificationStatus([{ required: true, status: "skipped" }]), "partial");
+assert.equal(aggregateVerificationStatus([{ required: true, status: "error" }]), "failed");
+assert.equal(aggregateVerificationStatus([{ required: true, status: "passed", evidenceId: "evidence-1" }], [{ required: false, reason: "optional check unavailable" }]), "passed");
+const planFixture = {
+  id: "project-plan-test", activeEnvironmentId: "development",
+  environments: [{ id: "development", variables: [] }],
+  requests: [{ id: "request-plan-test", name: "Create order", method: "POST" }],
+  sourceContext: { git: [{ root: "/workspace", branch: "main", commit: "ddc025b1", dirty: true }] },
+  tasks: [{ id: "task-plan-test", title: "Verify order", requestIds: ["request-plan-test"], updatedAt: "2026-02-01T00:00:00.000Z" }]
+};
+const plan = verificationPlan(planFixture, "task-plan-test");
+assert.equal(plan.checks[0].required, true);
+assert.equal(plan.snapshot.revisions[0].commit, "ddc025b1");
+assert.equal(plan.snapshot.revisions[0].dirty, true);
+assert.equal(plan.skipped[0].required, false);
+
+const appSource = await fs.readFile(new URL("../ui/app.js", import.meta.url), "utf8");
+assert.match(appSource, /Bounded investigation & context pack/);
+assert.match(appSource, /Copy MCP Context Reference \(get_context_pack_manifest\)/);
+assert.match(appSource, /bounded-source-investigation/);
+assert.match(appSource, /candidate_routes: artifacts\.filter/);
+assert.match(appSource, /data-task-archive/);
+assert.match(appSource, /requestServiceSelect/);
+assert.match(appSource, /data-attach-run/);
+assert.match(appSource, /Sample generated from the request schema/);
+assert.match(appSource, /segments\[2\] === "logs"/);
+const taskFormSource = appSource.slice(appSource.indexOf("function renderNewTask("), appSource.indexOf("function openTaskExplorer("));
+assert.equal((taskFormSource.match(/data-new-task-field="title"/g) ?? []).length, 1);
+assert.equal((taskFormSource.match(/data-new-task-field="description"/g) ?? []).length, 1);
+assert.equal((taskFormSource.match(/data-new-task-field="milestoneId"/g) ?? []).length, 1);
+assert.equal((taskFormSource.match(/data-new-task-field="issueUrl"/g) ?? []).length, 1);
+assert.doesNotMatch(taskFormSource, /Execution Mode|Assigned Agent|data-new-task-field="assignee"|data-new-task-field="dueDate"/);
+assert.match(appSource, /parseTaskExternalLinks\(\[draft\.externalLinksText, draft\.issueUrl\]/);
+assert.match(appSource, /sessionStorage\.setItem\("aipi:taskReturn"/);
 
 const api = http.createServer((request, response) => {
   response.setHeader("content-type", "application/json");
@@ -109,6 +168,45 @@ try {
   const redactedFixture = redactStateSecrets(hydratedFixture);
   assert.equal(redactedFixture.projects[0].environments[0].variables[0].value, "[REDACTED]");
   assert.equal(redactedFixture.projects[0].requests[0].certificates.clientKey, "[REDACTED]");
+    assert.deepEqual(parseEnvironmentFile('export ACCESS_TOKEN="token-value"\nPASSWORD=\'quoted value\'\nPORT=3000 # local'), [
+      { key: "ACCESS_TOKEN", value: "token-value" },
+      { key: "PASSWORD", value: "quoted value" },
+      { key: "PORT", value: "3000" }
+    ]);
+
+    const authProject = {
+      id: "project-auth-resolution",
+      activeEnvironmentId: "environment-auth-resolution",
+      environments: [{
+        id: "environment-auth-resolution",
+        variables: [{ key: "WORKSPACE_TOKEN", value: "bearer-fixture-secret", enabled: true, secret: true }],
+        services: [{
+          id: "service-auth-resolution", variableKey: "payments", baseUrl: "https://payments.example.test",
+          variables: [
+            { key: "API_TOKEN", value: "service-bearer-fixture", enabled: true, secret: true },
+            { key: "API_PASSWORD", value: "service-password-fixture", enabled: true, secret: true },
+            { key: "API_KEY", value: "service-api-key-fixture", enabled: true, secret: true }
+          ]
+        }]
+      }]
+    };
+    const executedRequests = [];
+    const captureExecution = async (request) => {
+      executedRequests.push(request);
+      return { status: 200, ok: true, passed: true, elapsed_ms: 1, headers: {}, body: "" };
+    };
+    for (const auth of [
+      { type: "bearer", tokenRef: "WORKSPACE_TOKEN" },
+      { type: "bearer", tokenRef: "payments.API_TOKEN" },
+      { type: "basic", username: "fixture-user", passwordRef: "payments.API_PASSWORD" },
+      { type: "apiKey", key: "X-API-Key", valueRef: "payments.API_KEY", placement: "header" }
+    ]) {
+      await executeSaved(captureExecution, authProject, { id: "request-auth-resolution", name: "Credential test", method: "GET", url: "{{payments}}/health", auth });
+    }
+    assert.equal(executedRequests[0].headers.authorization, "Bearer bearer-fixture-secret");
+    assert.equal(executedRequests[1].headers.authorization, "Bearer service-bearer-fixture");
+    assert.equal(executedRequests[2].headers.authorization, `Basic ${Buffer.from("fixture-user:service-password-fixture").toString("base64")}`);
+    assert.equal(executedRequests[3].headers["X-API-Key"], "service-api-key-fixture");
 
   const providerReference = "aipi-secret://provider-contract-test";
   const linuxCalls = [];
@@ -184,6 +282,11 @@ try {
   const blast = await checkBlastRadius(registry, { organizationId: "org_demo", repository: "payments-api", method: "POST", route: "/api/checkout", schema: { fields: [] } });
   assert.equal(blast.safe, false);
   assert.deepEqual(blast.impacts.map((entry) => entry.repository), ["ios-app-repo", "billing-dashboard-repo"]);
+  const requiredFieldBlast = await checkBlastRadius(registry, { organizationId: "org_demo", repository: "payments-api", method: "POST", route: "/api/checkout", schema: { fields: [{ name: "payment_id", type: "uuid", required: true }, { name: "merchant_id", type: "uuid", required: true }] } });
+  assert.equal(requiredFieldBlast.safe, false, "a newly required request field is breaking for registered consumers");
+  assert.equal(requiredFieldBlast.impacts.filter((entry) => entry.field === "merchant_id").length, 2);
+  const optionalFieldChange = await checkBlastRadius(registry, { organizationId: "org_demo", repository: "payments-api", method: "POST", route: "/api/checkout", schema: { fields: [{ name: "payment_id", type: "uuid", required: false }] } });
+  assert.equal(optionalFieldChange.safe, true, "making a request field optional is not breaking for callers");
 
   remoteServer = createRemoteMcpServer();
   await new Promise((resolve) => remoteServer.listen(0, "127.0.0.1", resolve));
@@ -197,8 +300,8 @@ try {
   assert.equal(typeof initialized.result.capabilities.resources.listChanged, "boolean");
 
   const listed = await rpc("tools/list");
-  assert.deepEqual(listed.result.tools.map((tool) => tool.name).slice(0, 2), ["api_request", "run_collection"]);
-  assert.ok(["trace_route", "diff_contract", "run_local_diagnostic", "generate_fixture", "check_blast_radius", "get_secret_storage_status", "get_project_timeline", "record_project_event", "analyze_and_repair_contract"].every((name) => listed.result.tools.some((tool) => tool.name === name)));
+  assert.ok(["api_request", "run_collection"].every((name) => listed.result.tools.some((tool) => tool.name === name)), "core request tools are advertised without relying on array order");
+  assert.ok(["get_context_pack_manifest", "get_contract_kmap", "list_contract_evidence", "verify_contract_revision", "trace_route", "diff_contract", "run_local_diagnostic", "generate_fixture", "check_blast_radius", "get_secret_storage_status", "get_project_timeline", "record_project_event", "analyze_and_repair_contract"].every((name) => listed.result.tools.some((tool) => tool.name === name)));
   const secretStatus = await rpc("tools/call", { name: "get_secret_storage_status", arguments: {} });
   assert.equal(secretStatus.result.structuredContent.status.plaintextFallback, false);
   const dashboardTool = listed.result.tools.find((tool) => tool.name === "open_dashboard");
@@ -262,7 +365,11 @@ try {
   assert.match(dashboardHtml, /id="modal"/);
   const dashboardStyles = await fetch("http://127.0.0.1:43129/styles.css");
   assert.equal(dashboardStyles.status, 200);
-  assert.match(await dashboardStyles.text(), /\.bottom-nav/);
+  const dashboardStylesText = await dashboardStyles.text();
+  assert.match(dashboardStylesText, /\.bottom-nav/);
+  assert.match(dashboardStylesText, /\.app-shell:not\(\.route-home\) \.chat-launcher\{bottom:calc/);
+  assert.match(dashboardStylesText, /@media\(max-width:760px\)\{\.project-list-toolbar/);
+  assert.match(dashboardHtml, /aria-modal="true" aria-labelledby="modalTitle"/);
   const dashboardApp = await fetch("http://127.0.0.1:43129/app.js");
   const dashboardAppText = await dashboardApp.text();
   assert.match(dashboardAppText, /function renderProject/);
@@ -272,12 +379,18 @@ try {
   assert.match(dashboardAppText, /function openCreateProjectModal/);
   assert.match(dashboardAppText, /function openCreateEnvironmentModal/);
   assert.match(dashboardAppText, /function openEditProjectModal/);
+  assert.match(dashboardAppText, /function openDeleteProjectModal/);
+  assert.match(dashboardAppText, /id="projectSearch"/);
+  assert.match(dashboardAppText, /data-project-action="delete"/);
+  assert.match(dashboardAppText, /role="list"/);
+  assert.match(dashboardAppText, /maxlength="64" aria-describedby="newProjectNameError projectNameCounter"/);
+  assert.match(dashboardAppText, /role="alert" aria-live="assertive"/);
   assert.match(dashboardAppText, /function renderProjectSummary/);
   assert.match(dashboardAppText, /function timelineEvent/);
   assert.match(dashboardAppText, /Project source of truth/);
   assert.match(dashboardAppText, /data-timeline-filter/);
   assert.match(dashboardAppText, /id="apiEnvironmentSelect"/);
-  assert.match(dashboardAppText, /class="mobile-header"/);
+  assert.match(dashboardAppText, /class="mobile-header(?:\s[^"]*)?"/);
   assert.doesNotMatch(dashboardAppText, /\["summary", "Summary"\]/);
 
   const createdProjectResponse = await fetch("http://127.0.0.1:43129/api/projects", {
@@ -291,6 +404,27 @@ try {
   assert.equal(createdProject.environments[0].name, "Local");
   assert.equal(createdProject.environments[0].variables[0].value, baseUrl);
   assert.equal(createdProject.sourceContext.scanStatus, "complete");
+  const duplicateRenameState = await (await fetch("http://127.0.0.1:43129/api/state", { headers: dashboardHeaders })).json();
+  duplicateRenameState.projects.find((entry) => entry.id === createdProject.id).name = "Starter project";
+  const duplicateRenameResponse = await fetch("http://127.0.0.1:43129/api/state", {
+    method: "PUT",
+    headers: dashboardHeaders,
+    body: JSON.stringify(duplicateRenameState)
+  });
+  assert.equal(duplicateRenameResponse.status, 409);
+  const duplicateProjectResponse = await fetch("http://127.0.0.1:43129/api/projects", {
+    method: "POST",
+    headers: dashboardHeaders,
+    body: JSON.stringify({ name: "  CREATED PROJECT  " })
+  });
+  assert.equal(duplicateProjectResponse.status, 409);
+  assert.equal((await duplicateProjectResponse.json()).code, "PROJECT_NAME_EXISTS");
+  const longNameResponse = await fetch("http://127.0.0.1:43129/api/projects", {
+    method: "POST",
+    headers: dashboardHeaders,
+    body: JSON.stringify({ name: "x".repeat(65) })
+  });
+  assert.equal(longNameResponse.status, 400);
 
   const otelResponse = await fetch("http://127.0.0.1:43129/api/otel/v1/traces", {
     method: "POST",
@@ -310,12 +444,20 @@ try {
   assert.equal(imported.status, 201);
   const importedProject = await imported.json();
   assert.equal(importedProject.requests[0].name, "List items");
+  const duplicateImport = await fetch("http://127.0.0.1:43129/api/import", {
+    method: "POST",
+    headers: dashboardHeaders,
+    body: JSON.stringify({ text: JSON.stringify({ openapi: "3.0.3", info: { title: "Test API" }, servers: [{ url: baseUrl }], paths: { "/items": { get: { summary: "List items", responses: { "200": { description: "OK" } } } } } }) })
+  });
+  assert.equal(duplicateImport.status, 409);
 
   const projects = await rpc("tools/call", { name: "list_projects", arguments: {} });
   assert.equal(projects.result.structuredContent.projects.length, 3);
   const projectId = projects.result.structuredContent.projects[0].id;
-  const toolProject = await rpc("tools/call", { name: "create_project", arguments: { name: "Tool-created project", goal: "Exercise native project creation", environment_name: "Preview", base_url: baseUrl } });
+  const toolProject = await rpc("tools/call", { name: "create_project", arguments: { name: "Tool-created project", goal: "Exercise native project creation", description: "A local test workspace", technology_stack: ["Hono", "Vitest"], environment_name: "Preview", base_url: baseUrl } });
   assert.equal(toolProject.result.structuredContent.project.environments[0].name, "Preview");
+  assert.equal(toolProject.result.structuredContent.project.description, "A local test workspace");
+  assert.deepEqual(toolProject.result.structuredContent.project.summary.libraries, ["Hono", "Vitest"]);
   const selectedProject = await rpc("tools/call", { name: "select_project", arguments: { project_id: projectId } });
   assert.equal(selectedProject.result.structuredContent.project_id, projectId);
   const selectedProjects = await rpc("tools/call", { name: "list_projects", arguments: {} });
@@ -328,6 +470,26 @@ try {
   assert.equal(scanned.result.structuredContent.scan.schemas[0].name, "users");
   assert.equal(scanned.result.structuredContent.scan.schemas[0].columns[0].name, "id");
   assert.equal(scanned.result.structuredContent.scan.schemas[0].columns[0].primaryKey, true);
+  const indexedProjectResponse = await rpc("tools/call", { name: "get_project", arguments: { project_id: projectId } });
+  const indexedProject = indexedProjectResponse.result.structuredContent.project;
+  const proposedTask = indexedProject.tasks.find((entry) => entry.status === "proposed");
+  assert.ok(proposedTask, "post-index bootstrapper creates proposed tasks");
+  const indexedContract = indexedProject.contracts.find((entry) => proposedTask.contractIds?.includes(entry.id));
+  assert.ok(indexedContract, "post-index bootstrapper links proposed tasks to normalized contracts");
+  const contextManifest = await rpc("tools/call", { name: "get_context_pack_manifest", arguments: { project_id: projectId, task_id: proposedTask.id } });
+  assert.equal(contextManifest.result.structuredContent.manifest.task.id, proposedTask.id);
+  assert.ok(Array.isArray(contextManifest.result.structuredContent.citationIds));
+  const contractKmap = await rpc("tools/call", { name: "get_contract_kmap", arguments: { project_id: projectId, contract_id: indexedContract.id } });
+  assert.equal(contractKmap.result.structuredContent.contract.id, indexedContract.id);
+  assert.ok(Array.isArray(contractKmap.result.structuredContent.chain));
+  const contractEvidence = await rpc("tools/call", { name: "list_contract_evidence", arguments: { project_id: projectId, contract_id: indexedContract.id } });
+  assert.ok(contractEvidence.result.structuredContent.tasks.some((entry) => entry.id === proposedTask.id));
+  const safeContract = indexedProject.contracts.find((entry) => entry.method === "GET");
+  const contractVerification = await rpc("tools/call", { name: "verify_contract_revision", arguments: { project_id: projectId, contract_id: safeContract.id } });
+  assert.equal(contractVerification.result.structuredContent.receipt.contractId, safeContract.id);
+  assert.equal((await fs.stat(path.join(sourceFixture, ".aipi", "manifest.json"))).isFile(), true);
+  const measuredProject = await rpc("tools/call", { name: "get_project", arguments: { project_id: projectId } });
+  assert.ok(measuredProject.result.structuredContent.project.retrievalTelemetry.some((entry) => entry.operation === "get_contract_kmap" && entry.bytesReturned > 0 && entry.estimatedTokens > 0));
   const endpoints = await rpc("tools/call", { name: "list_endpoints", arguments: { project_id: projectId } });
   assert.equal(endpoints.result.structuredContent.endpoints[0].path, "/api/users");
   const endpointId = endpoints.result.structuredContent.endpoints[0].id;
@@ -411,6 +573,15 @@ try {
   assert.ok(summary.result.structuredContent.summary.iterations.length > 0);
   assert.equal(summary.result.structuredContent.summary.corrections.schema.some((entry) => entry.type === "schema-drift"), false);
   assert.ok(summary.result.structuredContent.summary.evidence.tracedRuns >= 1);
+  const deletedProjectResponse = await fetch(`http://127.0.0.1:43129/api/projects/${encodeURIComponent(createdProject.id)}`, { method: "DELETE", headers: dashboardHeaders });
+  assert.equal(deletedProjectResponse.status, 200);
+  const deletedProjectResult = await deletedProjectResponse.json();
+  assert.equal(deletedProjectResult.state.projects.some((entry) => entry.id === createdProject.id), false);
+  assert.equal(deletedProjectResult.state.history.some((entry) => entry.projectId === createdProject.id), false);
+  assert.notEqual(deletedProjectResult.state.activeProjectId, createdProject.id);
+  assert.equal((await fs.stat(sourceFixture)).isDirectory(), true);
+  const missingProjectResponse = await fetch(`http://127.0.0.1:43129/api/projects/${encodeURIComponent(createdProject.id)}`, { method: "DELETE", headers: dashboardHeaders });
+  assert.equal(missingProjectResponse.status, 404);
   console.log("API Forge self-test passed");
 } finally {
   child.kill();

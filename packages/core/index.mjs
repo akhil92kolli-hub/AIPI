@@ -245,3 +245,17 @@ export function buildFixPlan(project, log, endpointContext = {}) {
     requiresApproval: true
   };
 }
+
+export {
+  WorkspaceProvider,
+  LocalWorkspaceProvider,
+  TeamWorkspaceProvider,
+  normalizeWorkspaceModel,
+} from './workspace-provider.mjs';
+
+export { evaluateReleaseCompatibility } from './release-compatibility.mjs';
+
+export {
+  persistTaskProposals,
+  proposeTasksFromAssessment,
+} from './task-proposals.mjs';

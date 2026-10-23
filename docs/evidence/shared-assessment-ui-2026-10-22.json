@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "scenario": "shared assessment summary implementation",
+  "recordedAt": "2026-10-21T19:48:31.662Z",
+  "repository": {
+    "head": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+    "dirty": true
+  },
+  "teamSite": {
+    "head": "89d01a5341567b30799901a7e3047c6942130718",
+    "dirty": true
+  },
+  "dirtySnapshot": {
+    "fingerprint": "sha256:cd5d40359559a8a4374dc2283c2fa3adf0a49eb3b67cb2530285104ee093765b",
+    "files": [
+      {
+        "path": "ui/app.js",
+        "sha256": "c9400386d5a94328555899a132ebf163737644d2dff68a1f79a8c9a3ef8012eb"
+      },
+      {
+        "path": "ui/change-assessment-view.js",
+        "sha256": "9cc9daedaf8c5166efb8fedbc62dc7d79a945d29229ff7a78d09ac625737221f"
+      },
+      {
+        "path": "ui/workspace-app.js",
+        "sha256": "1d93318e254df114be8d8b50625c8d7b033652473ebdce23ac9624c80317488d"
+      },
+      {
+        "path": "ui/workspace-app.css",
+        "sha256": "f712211bbba2063ef22bbe1bfeee239e87bbb04dbba9cee3afc75424482cf5f9"
+      },
+      {
+        "path": "tests/workspace-app.test.mjs",
+        "sha256": "27535ca30bbb05abf8923c4a52d2a40c9cc8228b6bc4c7cbdf7db6ac7af44ca5"
+      },
+      {
+        "path": "sites/aipi-public/app/team/dashboard/page.tsx",
+        "sha256": "4184a85fdcbf5f5704d2cd90a493117b1f35dbfc29f99f7e07d5948822381499"
+      },
+      {
+        "path": "sites/aipi-public/lib/workspace-app.d.ts",
+        "sha256": "fd677326338fc53e9967ffc4b09c74eecbecec7e80487a0f233a9ffe8a88a45a"
+      }
+    ]
+  },
+  "observed": {
+    "local": "Home, Explore and Tasks render a shared read-only change summary; selected comparisons are reassessed on navigation.",
+    "team": "PR impact uses the shared summary but forces verification unknown and clears on workspace refresh.",
+    "guardrails": [
+      "Known failures remain visible in bounded views.",
+      "Omitted components prevent a passing summary.",
+      "Source paths and reasons are HTML escaped."
+    ]
+  },
+  "checks": [
+    {
+      "command": "npm test",
+      "result": "passed"
+    },
+    {
+      "command": "npm run typecheck && npm run build:extension",
+      "result": "passed"
+    },
+    {
+      "command": "npm --prefix sites/aipi-public run build && ./sites/aipi-public/node_modules/.bin/tsc --noEmit --project sites/aipi-public/tsconfig.json",
+      "result": "passed"
+    },
+    {
+      "command": "node tests/change-assessment-route.test.mjs",
+      "result": "passed"
+    }
+  ],
+  "unverified": [
+    "Rendered browser and IDE keyboard/visual behavior; local browser use disabled in Work settings.",
+    "Disposable Supabase two-user access, full canonical sync, and actual Team ledger parity.",
+    "Production deployment and hosted CI.",
+    "Disposable Supabase stack unavailable on this host: Supabase CLI 2.54.10 is installed, but Docker/container runtime is absent."
+  ]
+}

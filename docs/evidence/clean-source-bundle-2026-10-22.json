@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-22",
+  "scope": "D2 clean committed source portability with explicit reachable-history sharing approval",
+  "sourceSha256": {
+    "packages/core/verification-source-bundle.mjs": "039969b299b8a1d50c4335a0ae1da499041ab6dda45fb00c18d88104159e96b0",
+    "tests/verification-source-bundle.test.mjs": "93e1c4ebc81dc1b7827b883c0a3ac42bc09ac8c0243e007e24576849cab16cbe",
+    "scripts/run-verified-change-fixture.mjs": "be34beb418bd7f6deb43a64e48166f565d1cc1300132cb9c820231c149ff176d",
+    "package.json": "9190414063f3c726aa35add6e60ad833112ade10ee3298723c1534b5e0617d73",
+    "docs/evidence/verified-change-portable-bundles-2026-10-22.json": "66a9bbec0b9e5c5da681eb2d4a90adccd6c6c257900ebe90c4ac0de9da186b13"
+  },
+  "checks": [
+    {"command": "node --test tests/verification-source-bundle.test.mjs", "result": "passed", "detail": "Exact commit imported; missing export/import approval, changed origin and tampered artifact rejected"},
+    {"command": "npm test", "result": "passed"},
+    {"command": "npx tsc --noEmit", "result": "passed"},
+    {"command": "npm run test:verified-change -- --report docs/evidence/verified-change-portable-bundles-2026-10-22.json", "result": "passed", "detail": "Three resources imported from approved bundles; repaired Orders commit fetched from second bundle; four failures and four passes reproduced; local relevance contrast accepted while overall coverage remained unknown"}
+  ],
+  "limits": [
+    "A Git bundle carries all history reachable from the pinned HEAD, which may contain old secrets; the exporter requires explicit approval of that history per resource.",
+    "Only clean committed Git revisions are supported. Dirty staged, unstaged, deleted and untracked content still needs an approved content snapshot.",
+    "The fixture deletes its temporary bundles after validation. Durable Team storage, two-user import authorization, service prerequisites and general runner integration remain open.",
+    "Import materializes source after approval but never installs dependencies or runs imported project commands."
+  ]
+}

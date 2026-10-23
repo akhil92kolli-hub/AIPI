@@ -9,6 +9,14 @@ inputs:
     description: Repository directory to scan.
     required: false
     default: .
+  project:
+    description: Optional AIPI project id or name. When supplied, publish a revision-linked verification receipt to the job summary.
+    required: false
+    default: ""
+  receipt-output:
+    description: Markdown artifact path for GitHub/GitLab PR comment automation.
+    required: false
+    default: aipi-verification-receipt.md
 runs:
   using: composite
   steps:
@@ -19,3 +27,7 @@ runs:
     - name: Run AIPI contract guard
       shell: bash
       run: node "$GITHUB_ACTION_PATH/scripts/aipi-cli-bundle.mjs" guard "${{ inputs.root }}"
+    - name: Publish AIPI verification receipt
+      if: ${{ inputs.project != '' }}
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/scripts/aipi-verify-bundle.mjs" --project "${{ inputs.project }}" --changed --receipt-output "${{ inputs.receipt-output }}"

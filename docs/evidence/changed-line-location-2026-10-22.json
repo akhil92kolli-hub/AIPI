@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-22",
+  "baseCommit": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "sourceState": "dirty working checkout; listed source and test files were untracked in this checkout",
+  "capability": "Bounded Git hunk coordinates and indexed-line overlap hints for selected local assessments",
+  "filesSha256": {
+    "packages/core/change-diff.mjs": "2870db89680dcd867037456057fbb99ec99df114e4fa08aa53d6a6865f9e2f35",
+    "packages/core/change-assessment.mjs": "d23b8f7c22fec4ebd4ad9fcca46dab0cae260acff1409412dd74cb2d0e7d17b9",
+    "packages/core/change-assessment-tools.mjs": "53a420d42e8cf8f8ec3cc3a5073c421e4a0cd85cc1929cb755bdebbfbcad8ce0",
+    "ui/change-assessment-view.js": "5e7672e2ab234047b794acf23be9de8fd9e3d18ea5b05b1160851fe9ae54b806",
+    "ui/workspace-app.js": "c609248ac0552bdf29b6eb98edb62a30c195a013424af188ed9468662eed2549",
+    "tests/change-diff.test.mjs": "7420eedff44f0d029a850c134b40beac997b3e78465f5841c789ef7c6dc4c0d0",
+    "tests/change-assessment.test.mjs": "14cee7bd4d21e3d0c7ee6ead564010fc41589dc15b9094e2e4dcb5ea10b022d0",
+    "tests/change-assessment-view.test.mjs": "3139e1f387fa496d966560adebb36978cf7660fba6180fc5dfcd6631389367f5"
+  },
+  "checks": [
+    { "command": "node --test tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/change-assessment-view.test.mjs tests/change-assessment-route.test.mjs tests/workspace-app.test.mjs", "result": "25 passed, 0 failed" },
+    { "command": "npm test", "result": "passed" },
+    { "command": "npm run build:extension", "result": "passed; includes root typecheck, UI/MCP/CLI/verify/observer builds and IDE asset/bridge validation" },
+    { "command": "npm run test:package", "result": "passed; isolated tarball, authenticated launch, routes/assets and MCP tool discovery" }
+  ],
+  "bounds": {
+    "eligibleFiles": 50,
+    "hunksPerFile": 200,
+    "patchCaptureBytes": "Uses the configured maxBytes capture budget; default 2000000 bytes",
+    "dataReturned": "Old/new hunk start and line counts only; source and patch text are not returned"
+  },
+  "observedBehavior": [
+    "A changed text file returns Git zero-context hunk coordinates without source lines.",
+    "A mapped target whose indexed line falls inside a new hunk is labeled as an overlap hint.",
+    "Other targets in the same file remain potential impacts; neither label claims a semantic contract change."
+  ],
+  "limitations": [
+    "The source index commonly stores a line anchor, not an AST-backed symbol range; an anchor outside a hunk cannot exclude impact.",
+    "Untracked, binary, renamed, deleted, type-changing and mode-only paths may lack line locations and remain file-level associations.",
+    "Line coordinates do not establish current index freshness, changed contract shape, owner coverage or verification relevance.",
+    "Team parity, browser/keyboard acceptance and the full D1 gate remain open."
+  ]
+}

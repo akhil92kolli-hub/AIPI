@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { executeRequest } from "./api-forge-server.mjs";
+import { executeRequest, callToolWithTelemetry } from "./api-forge-server.mjs";
 import { startDashboard } from "./dashboard-server.mjs";
 
-const dashboard = await startDashboard({ executeRequest });
+const dashboard = await startDashboard({ executeRequest, callTool: callToolWithTelemetry });
 process.stdout.write(`AIPI Local Companion: ${dashboard.url}\n`);
 process.stdout.write(`AIPI session token: ${dashboard.token}\n`);
 

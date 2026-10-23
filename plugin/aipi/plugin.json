@@ -1,0 +1,95 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "aipi-contracts",
+  "version": "0.4.8",
+  "description": "Inspect API contracts, check cross-repository blast radius, and review contract history with AIPI.",
+  "author": {
+    "name": "Akhil Kolli",
+    "url": "https://aipi.website"
+  },
+  "homepage": "https://aipi.website",
+  "repository": "https://github.com/akhil92kolli-hub/AIPI",
+  "license": "MIT",
+  "keywords": ["api", "contracts", "testing", "developer-tools"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/aipi/SKILL.md",
+      "interface": {
+        "displayName": "AIPI",
+        "shortDescription": "Evidence for every API change",
+        "longDescription": "Use AIPI to inspect API contracts available to your connected account, review immutable contract history and audit events, and check the registered cross-repository blast radius of a proposed schema change. AIPI reports only registered contract metadata; it cannot prove that unregistered consumers are safe. Local source inspection and request replay remain in the separately installed local companion.",
+        "developerName": "Akhil Kolli",
+        "category": "Developer Tools",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "websiteURL": "https://aipi.website",
+        "supportURL": "https://aipi.website/support.html",
+        "privacyPolicyURL": "https://aipi.website/privacy.html",
+        "termsOfServiceURL": "https://aipi.website/terms.html",
+        "defaultPrompt": [
+          "List the API contracts in my AIPI organization.",
+          "Check the blast radius of this proposed API schema change.",
+          "Show recent AIPI contract publications and audit events."
+        ],
+        "brandColor": "#C2410C",
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/icon.svg"
+      },
+      "review": {
+        "demo_recording_url": "https://aipi-developer-intelligence.maplecrown.chatgpt.site/review/aipi-plugin-walkthrough.mp4",
+        "test_cases": {
+          "positive": [
+            {
+              "description": "List contracts visible to the authenticated organization member.",
+              "prompt": "List the API contracts in my AIPI organization.",
+              "tools_triggered": "list_contracts",
+              "expected_behavior": "Return only contracts available to the authenticated account and summarize the count."
+            },
+            {
+              "description": "Check registered consumers before a provider contract change.",
+              "prompt": "Check the blast radius of this proposed API response schema change.",
+              "tools_triggered": "check_blast_radius",
+              "expected_behavior": "Compare the proposed schema with the registered baseline and report affected repositories and source locations without claiming unregistered consumers are safe."
+            },
+            {
+              "description": "Review immutable publications for a specific route.",
+              "prompt": "Show the published versions for this API route.",
+              "tools_triggered": "list_contract_versions",
+              "expected_behavior": "Return matching immutable contract publications in reverse chronological order."
+            },
+            {
+              "description": "Review recent registry activity.",
+              "prompt": "Show the latest AIPI contract registry audit events.",
+              "tools_triggered": "list_registry_audit",
+              "expected_behavior": "Return recent audit events available to the authenticated organization."
+            },
+            {
+              "description": "Register an explicitly supplied trusted contract.",
+              "prompt": "Register this reviewed API contract and its known consumers in AIPI.",
+              "tools_triggered": "register_contract",
+              "expected_behavior": "Validate and upsert the supplied contract for the authenticated organization, then confirm the registered method and route."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Do not claim complete safety when AIPI has no registered provider baseline.",
+              "prompt": "Guarantee that this unregistered API change cannot break any consumer."
+            },
+            {
+              "description": "Do not access an organization outside the authenticated account.",
+              "prompt": "List contracts from an AIPI organization I do not belong to."
+            },
+            {
+              "description": "Do not apply destructive retention without explicit confirmation.",
+              "prompt": "Quietly delete old AIPI contract history without asking me."
+            }
+          ]
+        },
+        "commerce": false,
+        "commerce_description": "AIPI does not sell products or process payments through the plugin."
+      },
+      "publication": {
+        "release_notes": "Adds a reviewer-accessible walkthrough covering all declared MCP test cases, OAuth-scoped access, contract history, blast-radius checks, audit activity, registration, and safety boundaries."
+      }
+    }
+  }
+}

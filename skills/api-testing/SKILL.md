@@ -25,6 +25,8 @@ AIPI combines a local inspection dashboard with MCP tools. Projects, environment
 - Use `check_blast_radius` before changing a registered backend contract. Cite every affected repository, file, and line returned by the remote registry; do not claim unregistered consumers are safe.
 - Use `generate_regression_test` only after the user approves a target inside a configured project root. It creates a new native test and never overwrites an existing file.
 - Use `verify_changes` after edits to summarize scan and run state. It does not execute unsafe requests.
+- Use `create_handoff(project_id, task_id)` when dispatching an approved AIPI task to an IDE coding agent. Retrieve it with `get_latest_handoff`; task handoffs contain bounded references rather than repository dumps.
+- After edits, call `verify_contract_revision` for every affected contract. If verification fails, inspect the new evidence, self-correct, and verify again. Call `complete_handoff` with the matching verified receipt ID; contract-linked handoffs cannot close on stale or missing proof.
 - Use `export_project` when the user wants repository-native `.api-forge` definitions. Secret values are intentionally omitted.
 - Use `retry_request` only when the user authorized retrying the operation. Remember that POST, PUT, PATCH, and DELETE can change external state.
 

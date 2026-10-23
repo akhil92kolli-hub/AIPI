@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { breakingChangeForConsumer, contractChanges, normalizeContract, normalizeRepository, normalizeRoute } from "../../../packages/contract-domain/index.js"
 
 type Field = { name: string; type: string; required?: boolean }
 type Consumer = { repository: string; file: string; line?: number; fields?: Field[] }
@@ -7,6 +8,7 @@ type ContractInput = {
   repository: string
   method: string
   route: string
+  direction?: "request" | "response"
   revision?: string
   source?: { file?: string; line?: number } | null
   schema: { fields?: Field[] }
@@ -30,6 +32,7 @@ const tools = [
       properties: {
         organizationId: { type: "string" }, repository: { type: "string" },
         method: { type: "string" }, route: { type: "string" }, revision: { type: "string" },
+        direction: { type: "string", enum: ["request", "response"], default: "request" },
         source: { type: ["object", "null"] }, schema: { type: "object" },
         consumers: { type: "array", items: { type: "object" } },
       },
@@ -47,6 +50,7 @@ const tools = [
       properties: {
         organizationId: { type: "string" }, repository: { type: "string" },
         method: { type: "string" }, route: { type: "string" }, revision: { type: "string" },
+        direction: { type: "string", enum: ["request", "response"], default: "request" },
         schema: { type: "object" },
       },
       additionalProperties: false,
@@ -68,7 +72,7 @@ const tools = [
   {
     name: "list_contract_versions", title: "List contract versions",
     description: "List immutable contract publications for one repository route.",
-    inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" }, repository: { type: "string" }, method: { type: "string" }, route: { type: "string" } }, additionalProperties: false },
+    inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" }, repository: { type: "string" }, method: { type: "string" }, route: { type: "string" }, direction: { type: "string", enum: ["request", "response"] } }, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
   },
   {
@@ -77,38 +81,25 @@ const tools = [
     inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 500, default: 100 } }, additionalProperties: false },
     annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
   },
+  {
+    name: "list_organization_members", title: "List organization members",
+    description: "List organization members and their production registry roles.",
+    inputSchema: { type: "object", required: ["organizationId"], properties: { organizationId: { type: "string" } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "set_retention_policy", title: "Set organization retention policy",
+    description: "Set contract-version and registry-audit retention windows. Requires organization owner or admin role.",
+    inputSchema: { type: "object", required: ["organizationId", "contractVersionDays", "auditEventDays"], properties: { organizationId: { type: "string" }, contractVersionDays: { type: "integer", minimum: 7, maximum: 3650 }, auditEventDays: { type: "integer", minimum: 7, maximum: 3650 } }, additionalProperties: false },
+    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: true },
+  },
+  {
+    name: "apply_retention_policy", title: "Apply organization retention policy",
+    description: "Delete expired audit events and old contract versions while preserving each route's latest version. Requires owner or admin role.",
+    inputSchema: { type: "object", required: ["organizationId", "confirm"], properties: { organizationId: { type: "string" }, confirm: { type: "boolean", const: true } }, additionalProperties: false },
+    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: true, idempotentHint: true },
+  },
 ]
-
-function normalizeRoute(route: string) {
-  const value = String(route || "/").split("?")[0].replace(/\/+/g, "/")
-  return value.startsWith("/") ? value : `/${value}`
-}
-
-function normalizeContract(contract: ContractInput) {
-  if (!contract?.organizationId || !contract?.repository || !contract?.method || !contract?.route) {
-    throw new Error("organizationId, repository, method, and route are required")
-  }
-  return {
-    organizationId: String(contract.organizationId),
-    repository: String(contract.repository),
-    method: String(contract.method).toUpperCase(),
-    route: normalizeRoute(contract.route),
-    revision: contract.revision ? String(contract.revision) : "working-tree",
-    source: contract.source ?? null,
-    schema: {
-      fields: (contract.schema?.fields ?? []).map((field) => ({
-        name: String(field.name), type: String(field.type), required: field.required !== false,
-      })),
-    },
-    consumers: (contract.consumers ?? []).map((consumer) => ({
-      repository: String(consumer.repository), file: String(consumer.file),
-      line: Number(consumer.line ?? 1),
-      fields: (consumer.fields ?? []).map((field) => ({
-        name: String(field.name), type: String(field.type), required: field.required !== false,
-      })),
-    })),
-  }
-}
 
 function dataApiHeaders(request: Request) {
   const authorization = request.headers.get("authorization")
@@ -137,51 +128,35 @@ async function dataApi(request: Request, path: string, init: RequestInit = {}) {
 
 async function listContracts(request: Request, organizationId: string) {
   const query = new URLSearchParams({
-    select: "organization_id,repository,method,route,revision,source_file,source_line,schema,consumers",
+    select: "organization_id,repository,method,route,direction,revision,source_file,source_line,schema,consumers",
     organization_id: `eq.${organizationId}`,
   })
   const rows = await dataApi(request, `api_contracts?${query}`) as Record<string, unknown>[]
   return rows.map((row) => normalizeContract({
     organizationId: String(row.organization_id), repository: String(row.repository),
     method: String(row.method), route: String(row.route), revision: String(row.revision),
+    direction: (row.direction ?? (row.schema as { direction?: string } | null)?.direction ?? "request") as "request" | "response",
     source: row.source_file ? { file: String(row.source_file), line: Number(row.source_line ?? 1) } : null,
     schema: row.schema as { fields?: Field[] }, consumers: row.consumers as Consumer[],
   }))
 }
 
-function contractChanges(previous: ReturnType<typeof normalizeContract> | null, proposed: ReturnType<typeof normalizeContract>) {
-  const before = new Map((previous?.schema.fields ?? []).map((field) => [field.name, field]))
-  const after = new Map(proposed.schema.fields.map((field) => [field.name, field]))
-  const changes: Array<Record<string, unknown>> = []
-  for (const [name, field] of before) {
-    const next = after.get(name)
-    if (!next) changes.push({ field: name, kind: "removed", before: field.type, after: null })
-    else if (field.type !== next.type) changes.push({ field: name, kind: "type-changed", before: field.type, after: next.type })
-    else if (field.required !== next.required) changes.push({ field: name, kind: "required-changed", before: field.required, after: next.required })
-  }
-  for (const [name, field] of after) {
-    if (!before.has(name) && field.required) changes.push({ field: name, kind: "required-added", before: null, after: field.type })
-  }
-  return changes
-}
-
 async function checkBlastRadius(request: Request, input: ContractInput) {
   const proposed = normalizeContract(input)
   const contracts = await listContracts(request, proposed.organizationId)
-  const providers = contracts.filter((entry) => entry.method === proposed.method && entry.route === proposed.route)
-  const baseline = providers.find((entry) => entry.repository === proposed.repository) ?? providers[0] ?? null
+  const providers = contracts.filter((entry) => entry.method === proposed.method && entry.route === proposed.route && entry.direction === proposed.direction)
+  const baseline = providers.find((entry) => normalizeRepository(entry.repository) === proposed.repository) ?? providers[0] ?? null
   const changes = contractChanges(baseline, proposed)
   const impacts: Array<Record<string, unknown>> = []
   for (const provider of providers) {
     for (const consumer of provider.consumers) {
       for (const change of changes) {
         const expected = consumer.fields.find((field) => field.name === change.field)
-        const unsafe = expected && (change.kind === "removed" || change.kind === "type-changed" ||
-          (change.kind === "required-changed" && change.after === false && expected.required))
+        const unsafe = breakingChangeForConsumer(change, expected)
         if (!unsafe) continue
         impacts.push({
           repository: consumer.repository, file: consumer.file, line: consumer.line,
-          field: change.field, change: change.kind, expected: expected.type, proposed: change.after,
+          field: change.field, change: change.kind, expected: expected?.type ?? null, proposed: change.after,
           message: `${String(change.field)} ${String(change.kind).replaceAll("-", " ")} will break ${consumer.repository} (${consumer.file}:${consumer.line}).`,
         })
       }
@@ -190,7 +165,7 @@ async function checkBlastRadius(request: Request, input: ContractInput) {
   const status = !baseline ? "unverified" : impacts.length ? "breaking" : "safe"
   return {
     status, safe: baseline ? impacts.length === 0 : null, organizationId: proposed.organizationId, route: proposed.route,
-    method: proposed.method,
+    method: proposed.method, direction: proposed.direction,
     baseline: baseline ? { repository: baseline.repository, revision: baseline.revision } : null,
     changes, impacts, note: baseline ? null : "No registered provider baseline exists for this route.",
   }
@@ -210,7 +185,7 @@ async function dispatch(request: Request, message: Record<string, unknown>) {
     return {
       protocolVersion: String(params.protocolVersion ?? "2025-11-25"),
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "aipi-remote", version: "0.1.0" },
+      serverInfo: { name: "aipi-remote", version: "0.3.0" },
       instructions: "Use check_blast_radius before changing a registered backend contract. Register contracts from trusted CI only.",
     }
   }
@@ -222,12 +197,12 @@ async function dispatch(request: Request, message: Record<string, unknown>) {
   const args = (params.arguments ?? {}) as Record<string, unknown>
   if (name === "register_contract") {
     const contract = normalizeContract(args as unknown as ContractInput)
-    const rows = await dataApi(request, "api_contracts?on_conflict=organization_id,repository,method,route", {
+    const rows = await dataApi(request, "api_contracts?on_conflict=organization_id,repository,method,route,direction", {
       method: "POST",
       headers: { prefer: "resolution=merge-duplicates,return=representation" },
       body: JSON.stringify({
         organization_id: contract.organizationId, repository: contract.repository,
-        method: contract.method, route: contract.route, revision: contract.revision,
+        method: contract.method, route: contract.route, direction: contract.direction, revision: contract.revision,
         source_file: contract.source?.file ?? null, source_line: contract.source?.line ?? null,
         schema: contract.schema, consumers: contract.consumers, updated_at: new Date().toISOString(),
       }),
@@ -239,10 +214,11 @@ async function dispatch(request: Request, message: Record<string, unknown>) {
     return toolResult({ contracts }, `${contracts.length} contract(s) registered.`)
   }
   if (name === "list_contract_versions") {
-    const query = new URLSearchParams({ select: "id,organization_id,repository,method,route,revision,source_file,source_line,schema,consumers,content_hash,published_by,created_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.desc" })
-    if (args.repository) query.set("repository", `eq.${String(args.repository)}`)
+    const query = new URLSearchParams({ select: "id,organization_id,repository,method,route,direction,revision,source_file,source_line,schema,consumers,content_hash,published_by,created_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.desc" })
+    if (args.repository) query.set("repository", `eq.${normalizeRepository(String(args.repository))}`)
     if (args.method) query.set("method", `eq.${String(args.method).toUpperCase()}`)
     if (args.route) query.set("route", `eq.${normalizeRoute(String(args.route))}`)
+    if (args.direction) query.set("direction", `eq.${String(args.direction)}`)
     const versions = await dataApi(request, `api_contract_versions?${query}`) as unknown[]
     return toolResult({ versions }, `${versions.length} immutable contract version(s) found.`)
   }
@@ -251,6 +227,23 @@ async function dispatch(request: Request, message: Record<string, unknown>) {
     const query = new URLSearchParams({ select: "id,event_type,repository,method,route,contract_version_id,actor_id,metadata,created_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.desc", limit: String(limit) })
     const events = await dataApi(request, `registry_audit_events?${query}`) as unknown[]
     return toolResult({ events }, `${events.length} registry audit event(s) found.`)
+  }
+  if (name === "list_organization_members") {
+    const query = new URLSearchParams({ select: "organization_id,user_id,role,created_at,updated_at", organization_id: `eq.${String(args.organizationId ?? "")}`, order: "created_at.asc" })
+    const members = await dataApi(request, `organization_memberships?${query}`) as unknown[]
+    return toolResult({ members }, `${members.length} organization member(s) found.`)
+  }
+  if (name === "set_retention_policy") {
+    const contractVersionDays = Number(args.contractVersionDays)
+    const auditEventDays = Number(args.auditEventDays)
+    if (!Number.isInteger(contractVersionDays) || contractVersionDays < 7 || contractVersionDays > 3650 || !Number.isInteger(auditEventDays) || auditEventDays < 7 || auditEventDays > 3650) throw new Error("Retention periods must be whole days between 7 and 3650")
+    const rows = await dataApi(request, "organization_retention_policies?on_conflict=organization_id", { method: "POST", headers: { prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ organization_id: String(args.organizationId ?? ""), contract_version_days: contractVersionDays, audit_event_days: auditEventDays, updated_at: new Date().toISOString() }) }) as unknown[]
+    return toolResult({ policy: rows[0] ?? null }, "Organization retention policy updated.")
+  }
+  if (name === "apply_retention_policy") {
+    if (args.confirm !== true) throw new Error("confirm must be true before retention is applied")
+    const rows = await dataApi(request, "rpc/apply_organization_retention", { method: "POST", body: JSON.stringify({ p_organization_id: String(args.organizationId ?? "") }) }) as unknown[]
+    return toolResult({ organizationId: args.organizationId, deleted: rows[0] ?? { deleted_versions: 0, deleted_audit_events: 0 } }, "Organization retention policy applied.")
   }
   if (name === "check_blast_radius") {
     const report = await checkBlastRadius(request, args as unknown as ContractInput)

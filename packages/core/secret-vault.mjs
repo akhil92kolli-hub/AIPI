@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,6 +10,16 @@ const KEYCHAIN_BINARY = "/usr/bin/security";
 const KEYCHAIN_SERVICE = "com.aipi.companion";
 const WINDOWS_TARGET_PREFIX = `${KEYCHAIN_SERVICE}:`;
 const REFERENCE_PREFIX = "aipi-secret://";
+const ENVELOPE_PREFIX = "aipi-envelope://";
+const PRIVATE_KEY_PREFIX = "aipi-pkcs8://";
+const VAULT_DATA_DIR = (process.env.AIPI_DATA || process.env.API_FORGE_DATA) && (process.env.AIPI_DATA || process.env.API_FORGE_DATA) !== "${PLUGIN_DATA}"
+  ? (process.env.AIPI_DATA || process.env.API_FORGE_DATA)
+  : path.join(os.homedir(), ".api-forge");
+const KEYRING_FILE = path.join(VAULT_DATA_DIR, "vault-keyring.json");
+const KEY_AGREEMENT = "ECDH-P256";
+const CONTENT_ENCRYPTION = "AES-256-GCM";
+const KEY_DERIVATION = "HKDF-SHA-256";
+const ENVELOPE_VERSION = 1;
 const SECRET_NAME = /(token|secret|password|passphrase|authorization|cookie|api.?key|private.?key)/i;
 
 const WINDOWS_CREDENTIAL_SCRIPT = `
@@ -250,7 +261,7 @@ export function createWindowsCredentialVault({ binary, run = runProcess }) {
   };
 }
 
-export async function createSecretVault() {
+async function createSystemSecretVault() {
   if (process.platform === "darwin" && await macOSKeychainAvailable()) {
     return {
       provider: "macos-keychain",
@@ -290,10 +301,260 @@ export async function createSecretVault() {
   return null;
 }
 
-export async function secretStorageStatus() {
+function privateKeyReference(keyId) {
+  return `${REFERENCE_PREFIX}vault/private/${keyId}`;
+}
+
+function publicKeyFingerprint(publicKey) {
+  const der = crypto.createPublicKey(publicKey).export({ type: "spki", format: "der" });
+  return crypto.createHash("sha256").update(der).digest("hex").match(/.{1,4}/g).join(":");
+}
+
+function createVaultIdentity() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const privateKeyMaterial = `${PRIVATE_KEY_PREFIX}${privateKey.export({ type: "pkcs8", format: "der" }).toString("base64url")}`;
+  const fingerprint = publicKeyFingerprint(publicKeyPem);
+  const id = `key_${fingerprint.replaceAll(":", "").slice(0, 24)}`;
+  return {
+    privateKeyMaterial,
+    metadata: { id, publicKey: publicKeyPem, fingerprint, createdAt: new Date().toISOString(), status: "active" }
+  };
+}
+
+function privateKeyObject(material) {
+  const value = String(material ?? "");
+  if (value.startsWith(PRIVATE_KEY_PREFIX)) {
+    return crypto.createPrivateKey({ key: Buffer.from(value.slice(PRIVATE_KEY_PREFIX.length), "base64url"), type: "pkcs8", format: "der" });
+  }
+  if (value.startsWith("-----BEGIN PRIVATE KEY-----")) return crypto.createPrivateKey(value);
+  // Older macOS Keychain entries containing PEM newlines are returned by the
+  // security CLI as a hexadecimal byte string. Decode them during migration.
+  if (/^[a-f0-9]+$/i.test(value) && value.length % 2 === 0) {
+    const decoded = Buffer.from(value, "hex").toString("utf8");
+    if (decoded.startsWith("-----BEGIN PRIVATE KEY-----")) return crypto.createPrivateKey(decoded);
+  }
+  throw new SecretStorageError("AIPI could not decode the protected vault private key.", "AIPI_VAULT_PRIVATE_KEY_INVALID");
+}
+
+function normalizeKeyring(value) {
+  if (!value || value.version !== 1 || !Array.isArray(value.keys)) return null;
+  const keys = value.keys.filter((entry) => entry?.id && entry?.publicKey && entry?.fingerprint);
+  if (!keys.length || !keys.some((entry) => entry.id === value.activeKeyId)) return null;
+  return { version: 1, activeKeyId: value.activeKeyId, updatedAt: value.updatedAt ?? null, keys };
+}
+
+async function readKeyring() {
+  try {
+    return normalizeKeyring(JSON.parse(await fs.readFile(KEYRING_FILE, "utf8")));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    if (error instanceof SyntaxError) throw new SecretStorageError("The AIPI vault key registry is not valid JSON.", "AIPI_VAULT_KEYRING_INVALID");
+    throw error;
+  }
+}
+
+async function writeKeyring(keyring) {
+  await fs.mkdir(VAULT_DATA_DIR, { recursive: true, mode: 0o700 });
+  const temporary = `${KEYRING_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await fs.writeFile(temporary, `${JSON.stringify(keyring, null, 2)}\n`, { mode: 0o600 });
+  await fs.rename(temporary, KEYRING_FILE);
+}
+
+async function installVaultIdentity(backing, current = null) {
+  const identity = createVaultIdentity();
+  await backing.set(privateKeyReference(identity.metadata.id), identity.privateKeyMaterial);
+  const now = new Date().toISOString();
+  const previousKeys = (current?.keys ?? []).map((entry) => entry.id === current?.activeKeyId ? { ...entry, status: "retired", retiredAt: now } : entry);
+  const keyring = { version: 1, activeKeyId: identity.metadata.id, updatedAt: now, keys: [...previousKeys, identity.metadata] };
+  await writeKeyring(keyring);
+  return keyring;
+}
+
+async function ensureKeyring(backing) {
+  return await readKeyring() ?? installVaultIdentity(backing);
+}
+
+function envelopeAad(reference, keyId) {
+  return Buffer.from(`aipi:vault:${ENVELOPE_VERSION}:${keyId}:${reference}`, "utf8");
+}
+
+function serializeEnvelope(envelope) {
+  return `${ENVELOPE_PREFIX}${Buffer.from(JSON.stringify(envelope), "utf8").toString("base64url")}`;
+}
+
+function parseEnvelope(value) {
+  if (typeof value !== "string" || !value.startsWith(ENVELOPE_PREFIX)) return null;
+  try {
+    const envelope = JSON.parse(Buffer.from(value.slice(ENVELOPE_PREFIX.length), "base64url").toString("utf8"));
+    if (envelope.version !== ENVELOPE_VERSION || envelope.keyAgreement !== KEY_AGREEMENT || envelope.keyDerivation !== KEY_DERIVATION || envelope.contentEncryption !== CONTENT_ENCRYPTION) throw new Error("unsupported envelope");
+    for (const field of ["keyId", "ephemeralPublicKey", "salt", "iv", "tag", "ciphertext"]) if (!envelope[field]) throw new Error(`missing ${field}`);
+    return envelope;
+  } catch {
+    throw new SecretStorageError("A saved AIPI credential has an invalid encrypted envelope.", "AIPI_SECRET_ENVELOPE_INVALID");
+  }
+}
+
+function deriveContentKey(sharedSecret, salt, aad) {
+  return Buffer.from(crypto.hkdfSync("sha256", sharedSecret, salt, aad, 32));
+}
+
+function encryptEnvelope(value, reference, identity) {
+  const ephemeral = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const sharedSecret = crypto.diffieHellman({ privateKey: ephemeral.privateKey, publicKey: crypto.createPublicKey(identity.publicKey) });
+  const salt = crypto.randomBytes(32);
+  const iv = crypto.randomBytes(12);
+  const aad = envelopeAad(reference, identity.id);
+  const key = deriveContentKey(sharedSecret, salt, aad);
+  const plaintext = Buffer.from(String(value), "utf8");
+  try {
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
+    cipher.setAAD(aad, { plaintextLength: plaintext.length });
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    return serializeEnvelope({
+      version: ENVELOPE_VERSION,
+      keyAgreement: KEY_AGREEMENT,
+      keyDerivation: KEY_DERIVATION,
+      contentEncryption: CONTENT_ENCRYPTION,
+      keyId: identity.id,
+      ephemeralPublicKey: ephemeral.publicKey.export({ type: "spki", format: "der" }).toString("base64url"),
+      salt: salt.toString("base64url"),
+      iv: iv.toString("base64url"),
+      tag: cipher.getAuthTag().toString("base64url"),
+      ciphertext: ciphertext.toString("base64url")
+    });
+  } finally {
+    plaintext.fill(0);
+    sharedSecret.fill(0);
+    key.fill(0);
+  }
+}
+
+function decryptEnvelopeBytes(envelope, reference, privateKeyPem) {
+  const sharedSecret = crypto.diffieHellman({
+    privateKey: privateKeyObject(privateKeyPem),
+    publicKey: crypto.createPublicKey({ key: Buffer.from(envelope.ephemeralPublicKey, "base64url"), type: "spki", format: "der" })
+  });
+  const salt = Buffer.from(envelope.salt, "base64url");
+  const iv = Buffer.from(envelope.iv, "base64url");
+  const aad = envelopeAad(reference, envelope.keyId);
+  const key = deriveContentKey(sharedSecret, salt, aad);
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv, { authTagLength: 16 });
+    decipher.setAAD(aad);
+    decipher.setAuthTag(Buffer.from(envelope.tag, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, "base64url")), decipher.final()]);
+  } catch {
+    throw new SecretStorageError("AIPI could not authenticate or decrypt a saved credential.", "AIPI_SECRET_DECRYPT_FAILED");
+  } finally {
+    sharedSecret.fill(0);
+    key.fill(0);
+  }
+}
+
+function decryptEnvelope(envelope, reference, privateKeyPem) {
+  const plaintext = decryptEnvelopeBytes(envelope, reference, privateKeyPem);
+  try { return plaintext.toString("utf8"); }
+  finally { plaintext.fill(0); }
+}
+
+function createEncryptedVault(backing) {
+  return {
+    provider: backing.provider,
+    service: backing.service,
+    encryption: { keyAgreement: KEY_AGREEMENT, keyDerivation: KEY_DERIVATION, contentEncryption: CONTENT_ENCRYPTION },
+    async set(reference, value) {
+      const keyring = await ensureKeyring(backing);
+      const identity = keyring.keys.find((entry) => entry.id === keyring.activeKeyId);
+      await backing.set(reference, encryptEnvelope(value, reference, identity));
+    },
+    async get(reference) {
+      const stored = await backing.get(reference);
+      const envelope = parseEnvelope(stored);
+      if (!envelope) return stored;
+      const keyring = await readKeyring();
+      const identity = keyring?.keys.find((entry) => entry.id === envelope.keyId);
+      if (!identity) throw new SecretStorageError(`The private key metadata for ${envelope.keyId} is unavailable.`, "AIPI_VAULT_KEY_NOT_FOUND");
+      const privateKey = await backing.get(privateKeyReference(envelope.keyId));
+      return decryptEnvelope(envelope, reference, privateKey);
+    },
+    async delete(reference) { await backing.delete(reference); }
+  };
+}
+
+export async function createSecretVault() {
+  const backing = await createSystemSecretVault();
+  return backing ? createEncryptedVault(backing) : null;
+}
+
+async function keyringStatus(backing) {
+  const keyring = await readKeyring();
+  if (!keyring) return { initialized: false, keyCount: 0, retiredKeyCount: 0, activeKey: null, activePublicKey: null, privateKeyAvailable: false };
+  const active = keyring.keys.find((entry) => entry.id === keyring.activeKeyId);
+  let privateKeyAvailable = false;
+  try { privateKeyAvailable = Boolean(await backing.get(privateKeyReference(active.id))); } catch {}
+  return {
+    initialized: true,
+    keyCount: keyring.keys.length,
+    retiredKeyCount: keyring.keys.filter((entry) => entry.status === "retired").length,
+    activeKey: active ? { id: active.id, fingerprint: active.fingerprint, createdAt: active.createdAt } : null,
+    activePublicKey: active?.publicKey ?? null,
+    privateKeyAvailable
+  };
+}
+
+export async function initializeSecretStorage() {
+  const backing = await createSystemSecretVault();
+  if (!backing) throw new SecretStorageError("AIPI cannot initialize encryption without a supported OS credential store.", "AIPI_SECRET_STORAGE_UNAVAILABLE");
+  await ensureKeyring(backing);
+  return secretStorageStatus();
+}
+
+export async function rotateSecretStorageKey() {
+  const backing = await createSystemSecretVault();
+  if (!backing) throw new SecretStorageError("AIPI cannot rotate encryption keys without a supported OS credential store.", "AIPI_SECRET_STORAGE_UNAVAILABLE");
+  await installVaultIdentity(backing, await readKeyring());
+  return secretStorageStatus();
+}
+
+export async function deleteSecretForScope(scope) {
+  const backing = await createSystemSecretVault();
+  if (!backing) throw new SecretStorageError("AIPI cannot remove credentials without a supported OS credential store.", "AIPI_SECRET_STORAGE_UNAVAILABLE");
+  await backing.delete(referenceFor(scope));
+}
+
+export async function storeEncryptedSecretForScope(scope, serializedEnvelope) {
+  const backing = await createSystemSecretVault();
+  if (!backing) throw new SecretStorageError("AIPI cannot save credentials without a supported OS credential store.", "AIPI_SECRET_STORAGE_UNAVAILABLE");
+  const keyring = await readKeyring();
+  if (!keyring) throw new SecretStorageError("Initialize the AIPI secrets vault before adding credentials.", "AIPI_VAULT_NOT_INITIALIZED");
+  const reference = referenceFor(scope);
+  const envelopeText = typeof serializedEnvelope === "string" ? serializedEnvelope : serializeEnvelope(serializedEnvelope);
+  const envelope = parseEnvelope(envelopeText);
+  if (envelope.keyId !== keyring.activeKeyId) throw new SecretStorageError("The credential was encrypted for a retired vault key. Refresh vault status and try again.", "AIPI_VAULT_KEY_CHANGED");
+  const identity = keyring.keys.find((entry) => entry.id === envelope.keyId);
+  if (!identity) throw new SecretStorageError("The active AIPI vault key metadata is unavailable.", "AIPI_VAULT_KEY_NOT_FOUND");
+  const privateKey = await backing.get(privateKeyReference(identity.id));
+  const plaintext = decryptEnvelopeBytes(envelope, reference, privateKey);
+  plaintext.fill(0);
+  await backing.set(reference, envelopeText);
+  return reference;
+}
+
+export async function storeSecretForScope(scope, value) {
   const vault = await createSecretVault();
-  return vault
-    ? { available: true, platform: process.platform, provider: vault.provider, service: vault.service, plaintextFallback: false }
+  if (!vault) throw new SecretStorageError("AIPI cannot save credentials without a supported OS credential store.", "AIPI_SECRET_STORAGE_UNAVAILABLE");
+  const keyring = await readKeyring();
+  if (!keyring) throw new SecretStorageError("Initialize the AIPI secrets vault before capturing a browser session.", "AIPI_VAULT_NOT_INITIALIZED");
+  const reference = referenceFor(scope);
+  await vault.set(reference, String(value));
+  return reference;
+}
+
+export async function secretStorageStatus() {
+  const backing = await createSystemSecretVault();
+  return backing
+    ? { available: true, platform: process.platform, provider: backing.provider, service: backing.service, plaintextFallback: false, encryption: { keyAgreement: KEY_AGREEMENT, keyDerivation: KEY_DERIVATION, contentEncryption: CONTENT_ENCRYPTION, envelopeVersion: ENVELOPE_VERSION, ...await keyringStatus(backing) } }
     : {
         available: false,
         platform: process.platform,
@@ -325,8 +586,19 @@ function secretLocations(state) {
         locations.push({
           owner: variable,
           field: "value",
-          scope: `${environmentScope}:variable:${variable.key || variableIndex}`
+          scope: `${environmentScope}:variable:${variable.key || variableIndex}${variable.vaultCredential && variable.credentialRefId ? `:credential:${variable.credentialRefId}` : ""}`
         });
+      }
+      for (const [serviceIndex, service] of (environment.services ?? []).entries()) {
+        const serviceScope = `${environmentScope}:service:${service.id ?? service.variableKey ?? serviceIndex}`;
+        for (const [variableIndex, variable] of (service.variables ?? []).entries()) {
+          if (!variable?.secret && !SECRET_NAME.test(variable?.key ?? "")) continue;
+          locations.push({
+            owner: variable,
+            field: "value",
+            scope: `${serviceScope}:variable:${variable.key || variableIndex}${variable.vaultCredential && variable.credentialRefId ? `:credential:${variable.credentialRefId}` : ""}`
+          });
+        }
       }
     }
     for (const [requestIndex, request] of (project.requests ?? []).entries()) {

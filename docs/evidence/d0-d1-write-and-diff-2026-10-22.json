@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-22",
+  "scope": "D0 workspace-write revocation ordering and D1 Team PR comparison gaps",
+  "sourceSha256": {
+    "supabase/migrations/20261022232000_lock_workspace_writer_membership.sql": "fdf8d07389407be618e048e8bb2f9d78841338c1f198e3f6781744756318b59b",
+    "supabase/tests/team_scoped_write_revocation.sql": "d68f494639069feeb81cb1ae51ee40314c265c26b6efadd8fb0f239e71728ae2",
+    "supabase/tests/team_scoped_write_race.py": "f2c18991a781928e37741aa60e27e393f5d73e6b51ff9195979fc5145c7a6e05",
+    "supabase/schema.sql": "08983bda279cfe7f520b9f1b3f9a54f52b2100d24eff252db36607622bad965a",
+    "packages/core/team-change-assessment.mjs": "fb7ed63bd1feca73c03952f68e7af5006aa064bcac563d029d7cf295c6491b37",
+    "packages/core/team-contract-comparison.mjs": "d567e1f7569687891d84b01fc407b8c4f4da5f4e94f8252666ddf48b608db65e",
+    "cloud/worker.ts": "06e5da97ae5a60087b1efa41a7ab1a03ef0434bfa8c05cba013c6707f7dced37",
+    "sites/aipi-public/app/team/dashboard/page.tsx": "67613ec3d4a944fd0a29f2e8eb35a0bd26bad87859121b3e361428714915f667"
+  },
+  "checks": [
+    {"name": "Fresh PostgreSQL 17 replay", "result": "passed", "detail": "41 ordered migrations applied to a fresh database with Auth, Realtime publication and Cron stand-ins; unavailable pg_cron extension creation omitted"},
+    {"name": "SQL access and write tests", "result": "passed", "detail": "Five suites and 34 pgTAP-equivalent assertions passed, including four new task write/revocation assertions"},
+    {"name": "Two-session write/revocation race", "command": "AIPI_TEST_DATABASE_URL=postgresql:///aipi_d0_d1_verify2?host=/tmp&port=55432 PSQL=/opt/homebrew/opt/postgresql@17/bin/psql python3 supabase/tests/team_scoped_write_race.py", "result": "passed", "detail": "A writer was observed sleeping inside an open transaction after its guarded insert; membership deletion waited 3.94 seconds for commit; a subsequent write returned WORKSPACE_WRITE_DENIED. This used the disposable PostgreSQL stand-in, not hosted Supabase."},
+    {"name": "Root application suite", "command": "npm test", "result": "passed"},
+    {"name": "TypeScript", "command": "npx tsc --noEmit && ./node_modules/.bin/tsc --noEmit -p sites/aipi-public/tsconfig.json", "result": "passed"},
+    {"name": "IDE extension", "command": "npm run build:extension", "result": "passed"},
+    {"name": "Team site", "command": "npm --prefix sites/aipi-public run build", "result": "passed"},
+    {"name": "Package smoke", "command": "npm run test:package", "result": "passed"},
+    {"name": "React, Orders and Billing verified change", "command": "npm run test:verified-change -- --report docs/evidence/verified-change-d0-d1-fullest-2026-10-22.json", "result": "passed", "detail": "known-bad failures and repaired passes reproduced in separate checkouts; prior proof became stale; repaired coverage remains unknown"}
+  ],
+  "observations": [
+    "The workspace-scoped write trigger now locks the workspace, workspace membership and organization membership rows while authorizing task, context, evidence, comment, receipt, graph and PR row writes.",
+    "A queued row write is denied after workspace or organization membership removal; a write that obtains the shared lock first serializes ahead of the revocation transaction.",
+    "The repository-binding broker now receives explicit service-role project table privileges, which a minimal fresh deployment needs for its locked upsert.",
+    "Team PR assessment maps the old path of a rename and a deletion, while renamed, deleted, generated and uninspectable paths keep the assessment incomplete.",
+    "Selected OpenAPI 3 JSON comparison now surfaces changed request schema constraints, path-level parameter schemas, and response fields that cease to be required. Unresolved response or parameter references keep the comparison partial."
+  ],
+  "limits": [
+    "The PostgreSQL replay used stand-ins and did not exercise real Supabase JWT issuance, PostgREST, Storage or Realtime with two identities.",
+    "The two-session race test proves PostgreSQL row-lock ordering in the disposable stand-in, but has not been repeated through hosted Supabase PostgREST or background jobs.",
+    "Task, evidence, PR, snapshot and change-feed payloads still require a complete repository-rights audit and brokered or redacted projections.",
+    "OpenAPI comparison covers selected JSON structure; YAML, broader schema semantics and independent consumer discovery remain incomplete.",
+    "Team has no accepted common exact-target execution receipt and cannot show a verified pass. The local repaired fixture remains unknown for relevance and discovery.",
+    "D0 and D1 completion gates remain open."
+  ]
+}

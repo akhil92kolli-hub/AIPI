@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "workspace": { "id": "wsg_team_reset_fixture", "name": "Commerce change verification", "mode": "local" },
+  "projects": [
+    { "id": "prj_storefront", "kind": "local_folder", "folder": "react", "stack": "React/TypeScript" },
+    { "id": "prj_orders", "kind": "local_folder", "folder": "orders", "stack": "FastAPI/Python" },
+    { "id": "prj_inventory", "kind": "local_folder", "folder": "inventory", "stack": "FastAPI/Python" },
+    { "id": "prj_payments", "kind": "external_service", "baseUrl": "https://sandbox.payments.invalid", "source": "contract-only" }
+  ],
+  "actors": [
+    { "id": "user_a", "role": "owner", "device": "device_a", "githubCapability": "write" },
+    { "id": "user_b", "role": "developer", "device": "device_b", "githubCapability": "read" },
+    { "id": "agent_a", "kind": "IDE agent", "runner": "device_a" }
+  ],
+  "change": { "projectId": "prj_orders", "contract": "POST /api/orders response", "mutation": "remove total", "expectedAffected": ["prj_storefront", "prj_orders"], "expectedChecks": ["orders contract test", "storefront checkout test"] }
+}

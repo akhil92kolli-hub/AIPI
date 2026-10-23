@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-22",
+  "baseCommit": "ddc025b14f678f508d7d0067ee1f54370ab1a1b1",
+  "sourceState": "dirty working checkout; listed source and test files were untracked in this checkout",
+  "capability": "Read-only unstaged-only Git comparison in local assessment, MCP schema and Explore/Tools form",
+  "filesSha256": {
+    "packages/core/change-diff.mjs": "2f6762c1bce6a95e1c79ca39b3f1d161be064446a031687476b0a8edfd1c9d98",
+    "packages/core/change-assessment.mjs": "05ef86bfc2b8253250a96d5f9979dfa08ce1ed028acf592ca2ef85ed567812c0",
+    "packages/core/change-assessment-tools.mjs": "b86f96a24347d4a2e507945d2e50118ce03385796b56c7095718d8730b09f08a",
+    "ui/change-assessment-view.js": "9b400cb6f80db7f744d84089d2e974b0766ea0b3e1567d9116b5aa8bcb5b3572",
+    "ui/workspace-app.js": "3680588e10c190cc0575979c8109c682c00a799f1eea5568cbd73067293e0986",
+    "tests/change-diff.test.mjs": "3f001ea317bf47f686df3c7f536c58208c287d718a07b75bf3bbbf829bddee2c",
+    "tests/change-assessment.test.mjs": "1127b04d66157efd07ad621927258ed737b452383dc0e81ac9cb5d15b1973cf5",
+    "tests/change-assessment-view.test.mjs": "9220fbaf8bb271ba3ccadaf46ee5d0704bc2b111043cac0a347512d037e1cc33"
+  },
+  "checks": [
+    { "command": "node --test tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/change-assessment-view.test.mjs tests/change-assessment-route.test.mjs tests/workspace-app.test.mjs", "result": "23 passed, 0 failed" },
+    { "command": "npm test", "result": "passed" },
+    { "command": "npm run build:extension", "result": "passed; includes root typecheck, UI/MCP/CLI/verify/observer builds and IDE asset/bridge validation" }
+  ],
+  "observedBehavior": [
+    "Unstaged inventory includes index-to-worktree changes and excludes staged-only and untracked paths.",
+    "An index change invalidates the source pin even when the unstaged patch itself is unchanged.",
+    "A baseline that is not current HEAD is rejected for unstaged mode.",
+    "Mode and revisions contribute to the assessment plan hash, separating receipt targets across comparison modes.",
+    "An index-only state displays zero unstaged files without hiding the dirty tracked-source pin."
+  ],
+  "limitations": [
+    "Changed file associations remain conservative potential impacts; no changed-symbol or semantic contract proof is claimed.",
+    "Untracked paths require combined working-change assessment.",
+    "Team ledger parity, permission-revocation acceptance and browser/keyboard testing remain open; D1 is partial."
+  ]
+}

@@ -1,0 +1,98 @@
+name: Capability foundations
+
+on:
+  push:
+    paths:
+      - packages/core/change-diff.mjs
+      - packages/core/verification-coverage.mjs
+      - packages/core/assessment-proof.mjs
+      - packages/core/verification-package.mjs
+      - packages/core/verification-runner.mjs
+      - packages/core/change-assessment*.mjs
+      - ui/change-assessment-view.js
+      - ui/app.js
+      - scripts/api-forge-server.mjs
+      - scripts/dashboard-server.mjs
+      - scripts/workspace-store.mjs
+      - package.json
+      - package-lock.json
+      - tests/change-diff.test.mjs
+      - tests/verification-coverage.test.mjs
+      - tests/assessment-proof.test.mjs
+      - tests/verification-package.test.mjs
+      - tests/verification-runner.test.mjs
+      - tests/change-assessment*.test.mjs
+      - tests/helpers/change-assessment-fixture.mjs
+      - fixtures/verified-change/**
+      - scripts/run-verified-change-fixture.mjs
+      - scripts/aipi-package-preflight.mjs
+      - .github/workflows/capability-foundations.yml
+  pull_request:
+    paths:
+      - packages/core/change-diff.mjs
+      - packages/core/verification-coverage.mjs
+      - packages/core/assessment-proof.mjs
+      - packages/core/verification-package.mjs
+      - packages/core/verification-runner.mjs
+      - packages/core/change-assessment*.mjs
+      - ui/change-assessment-view.js
+      - ui/app.js
+      - scripts/api-forge-server.mjs
+      - scripts/dashboard-server.mjs
+      - scripts/workspace-store.mjs
+      - package.json
+      - package-lock.json
+      - tests/change-diff.test.mjs
+      - tests/verification-coverage.test.mjs
+      - tests/assessment-proof.test.mjs
+      - tests/verification-package.test.mjs
+      - tests/verification-runner.test.mjs
+      - tests/change-assessment*.test.mjs
+      - tests/helpers/change-assessment-fixture.mjs
+      - fixtures/verified-change/**
+      - scripts/run-verified-change-fixture.mjs
+      - scripts/aipi-package-preflight.mjs
+      - .github/workflows/capability-foundations.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  domain-and-git:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Verify coverage invariants and isolated Git capture
+        run: node --test tests/verification-coverage.test.mjs tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/assessment-proof.test.mjs tests/verification-package.test.mjs tests/change-assessment-view.test.mjs tests/verification-runner.test.mjs
+  companion-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Exercise authenticated local API and MCP dispatch
+        run: node --test tests/change-assessment-route.test.mjs
+  verified-change-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts
+      - name: Exercise React and two FastAPI services against actual changed code
+        run: npm run test:verified-change

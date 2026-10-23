@@ -13,6 +13,7 @@ import { anonymizeFixtureData, diffObservedContract, generateFixtureContent } fr
 import { normalizeOtelTraces, summarizeOtelBatch } from "../packages/local-observer/otel.mjs";
 import { incrementalSourceIndex } from "../packages/contract-engine/incremental-index.mjs";
 import { validationForHandler } from "../packages/contract-engine/validation-adapters.mjs";
+import { pairingSubprotocol, validatePairingRequest, validatePairingResponse } from "../packages/core/pairing.mjs";
 
 const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aipi-regression-"));
 
@@ -109,6 +110,23 @@ async def create_order(payload: OrderInput):
   assert.equal(fastApiSchema.kind, "pydantic");
   assert.equal(fastApiSchema.fields.find((field) => field.name === "customer_id").type, "uuid");
   assert.equal(fastApiSchema.fields.find((field) => field.name === "note").required, false);
+  await fs.writeFile(path.join(temporaryRoot, "orders.py"), fastApiText);
+  const fastApiTrace = await traceNextRoute({ root: temporaryRoot, url: "/orders", method: "POST" });
+  assert.equal(fastApiTrace.adapter, "fastapi");
+  assert.equal(fastApiTrace.validation.kind, "pydantic");
+
+  const expressWithMultipleSchemas = `
+    import express from "express";
+    import { z } from "zod";
+    const ignoredSchema = z.object({ other: z.string() });
+    const orderSchema = z.object({ customerId: z.string().uuid(), quantity: z.number().int() }).strict();
+    function createOrder(req, res) { const body = orderSchema.parse(req.body); return res.json(body); }
+    const app = express(); app.post("/orders", createOrder);
+  `;
+  await fs.writeFile(path.join(temporaryRoot, "express-orders.ts"), expressWithMultipleSchemas);
+  const expressTrace = await traceNextRoute({ root: temporaryRoot, url: "/orders", method: "POST" });
+  assert.equal(expressTrace.adapter, "express");
+  assert.equal(expressTrace.validation.name, "orderSchema");
 
   const incrementalRoot = path.join(temporaryRoot, "incremental");
   await fs.mkdir(incrementalRoot);
@@ -121,6 +139,11 @@ async def create_order(payload: OrderInput):
   assert.equal(firstIndex.metrics.parsed, 1);
   assert.equal(secondIndex.metrics.cacheHits, 1);
   assert.equal(parses, 1);
+
+  assert.match(pairingSubprotocol("dashboard", "abcdefghijklmnopqrstuvwxyz123456"), /^dashboard\./);
+  assert.deepEqual(validatePairingRequest({ type: "request", id: "req-1", method: "GET", path: "/api/state" }), { type: "request", id: "req-1", method: "GET", path: "/api/state", body: undefined });
+  assert.throws(() => validatePairingRequest({ type: "request", id: "req-2", method: "POST", path: "/api/tools/call" }), /not available/);
+  assert.equal(validatePairingResponse({ type: "response", id: "req-1", status: 200, body: {} }).status, 200);
 
   const redactedUrl = redactCapturedUrl("http://localhost/api/orders?token=secret&view=summary");
   assert.match(redactedUrl, /token=%5BREDACTED%5D/);

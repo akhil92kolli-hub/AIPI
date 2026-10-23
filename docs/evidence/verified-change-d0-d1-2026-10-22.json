@@ -1,0 +1,215 @@
+{
+  "scenario": "local verified change",
+  "testedAt": "2026-10-22T06:38:22.067Z",
+  "revisions": {
+    "orders": "0a7cd3c38c6272117cac27727688b559676d0e80",
+    "billing": "45f9d39d178c946a0c565110df40369349b08317",
+    "storefront": "7c88c0f2237543668aa1a6a73d417539edcae607"
+  },
+  "testedRevisions": {
+    "knownBad": "e5d1287471318ec9830cf8c932228ade9fbf6717",
+    "repaired": "1e041424aa058493f3547a30bca015bee276537c"
+  },
+  "environment": {
+    "node": "v22.15.1",
+    "python": "Python 3.13.3",
+    "pythonPackages": [
+      "fastapi==0.159.1",
+      "httpx==0.28.1",
+      "pydantic==2.14.1",
+      "pytest==9.1.1",
+      "uvicorn==0.54.0"
+    ],
+    "frontendPackages": {
+      "react-dom": "19.3.1",
+      "react": "19.3.1",
+      "tsx": "4.23.15"
+    }
+  },
+  "knownGood": {
+    "orders": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:4e8b6c5a89da44bf05d17100903172be04033067c113a6831bdfafbd42b7da52",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    },
+    "billing": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:4e8b6c5a89da44bf05d17100903172be04033067c113a6831bdfafbd42b7da52",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    },
+    "storefront": {
+      "passed": true,
+      "exitCode": 0,
+      "outputHash": "sha256:df39ed13b980117438e79f3875def45ee82737fccc1d15e923794180519c6aa2",
+      "expectedAssertionObserved": false,
+      "passMarkerObserved": true
+    }
+  },
+  "broken": {
+    "orders": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:bf82e69d542859e5484df73a6ce28f3a9711a1c095b35ed06020afd514ba4f71",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    },
+    "billing": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:17dabe1deed18fde0a2b3f014a8b89fb665f2eac1bc4226e565d54f69b42b858",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    },
+    "storefront": {
+      "passed": false,
+      "exitCode": 1,
+      "outputHash": "sha256:7eb84460a3c0e86a163a184b132b94caa711de8aca5366acab0632f4a890c8c6",
+      "expectedAssertionObserved": true,
+      "passMarkerObserved": false
+    }
+  },
+  "brokenAssessment": {
+    "changedFiles": [
+      {
+        "status": "M",
+        "path": "app.py",
+        "previousPath": null,
+        "binary": false,
+        "addedLines": 1,
+        "removedLines": 1,
+        "baselineContentHash": "fd6fc7963331a1ceda60b704ccc7817fa7c40b9b96ac2063a60d36ad84fe9969",
+        "lineRanges": [
+          {
+            "oldStart": 21,
+            "oldLines": 1,
+            "newStart": 21,
+            "newLines": 1
+          }
+        ]
+      }
+    ],
+    "affected": [
+      "orders",
+      "orders",
+      "storefront",
+      "billing"
+    ],
+    "changedHandlerLocated": true,
+    "ledger": "failed",
+    "billingCheckMissing": true,
+    "receiptIds": [
+      "assessment_receipt_ab9fa3e7-1021-40f3-9566-86cdbbe6ae84",
+      "assessment_receipt_4265f28a-2c72-4ce7-a0f8-72cde6a4b070",
+      "assessment_receipt_64cc1705-7edd-456f-9efb-31be92705bff"
+    ],
+    "evidenceIds": [
+      "sha256:6dda0e5fbf2538d60f4d6c0a5bd2ad01416e0758795d6480fda3e7fa247d2cba",
+      "sha256:29b7b044bf3f88dc3eef10b84fa153f7fee9b182042b3677677f4f3f954e63f1",
+      "sha256:f404d9766dd6327fa5f1fb35c45f8806844237375b0f062926ddd4674055da1d"
+    ]
+  },
+  "repairedAssessment": {
+    "affected": [
+      "orders",
+      "orders",
+      "storefront",
+      "billing"
+    ],
+    "checkResults": [
+      {
+        "projectId": "billing",
+        "status": "passed"
+      },
+      {
+        "projectId": "orders",
+        "status": "passed"
+      },
+      {
+        "projectId": "orders",
+        "status": "passed"
+      },
+      {
+        "projectId": "storefront",
+        "status": "passed"
+      }
+    ],
+    "ledger": "unknown",
+    "complete": false,
+    "previousProofStale": true,
+    "receiptIds": [
+      "assessment_receipt_14526ebf-7d2b-45f5-acaa-1ebd67060b8a",
+      "assessment_receipt_b38d4ba2-958f-4cce-894a-f104b30ee807",
+      "assessment_receipt_247b0ee0-7185-41b5-b900-cc7274bcb6bf",
+      "assessment_receipt_728de863-e768-4847-814b-b11c6a49776c"
+    ],
+    "evidenceIds": [
+      "sha256:abf020c1f9668605320a1382e748ddf5b07a6fedd505e9a6e95fa5f771528147",
+      "sha256:59b551a75b455b6a137b87cb0d68ec686efeb7311a996b627888f2881622705e",
+      "sha256:bc74643edb3046d5f9e75b9fe98b36816c3c67c0fcb56ce583591fdeabb8bb18",
+      "sha256:442d998a95a1dfd424a0c12e0a9992886b5a0064b1e2f8afb59c1f2926cec318"
+    ]
+  },
+  "independentReproduction": {
+    "packageHashes": {
+      "knownBad": "sha256:4d483c65aaaf05192492b449bacf6dc89b176056f9de2556c74dc0e5dc4f988b",
+      "repaired": "sha256:c56aeb37ecd323c1d15e319c2914d5cf8bc1967db1d358f4b33e7747ff51e768"
+    },
+    "cleanSourcePackages": true,
+    "preflightReady": true,
+    "knownBadResults": [
+      {
+        "projectId": "billing",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "orders",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "orders",
+        "passed": false,
+        "exitCode": 1
+      },
+      {
+        "projectId": "storefront",
+        "passed": false,
+        "exitCode": 1
+      }
+    ],
+    "repairedResults": [
+      {
+        "projectId": "billing",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "orders",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "orders",
+        "passed": true,
+        "exitCode": 0
+      },
+      {
+        "projectId": "storefront",
+        "passed": true,
+        "exitCode": 0
+      }
+    ],
+    "runner": "fixture-initiated explicit execution of imported command arrays in separate Git clones and an independent Python environment"
+  },
+  "limitations": [
+    "Orders handler range and source hash come from the scanner; consumer associations and cross-project links are seeded from inspected fixture code.",
+    "Passing commands remain unproven for regression relevance in the product ledger.",
+    "Generated manifests and temporary Git repositories are removed after the run; this record alone cannot replay their commits.",
+    "Team synchronization, repository rights, an agent and PR evidence were not exercised."
+  ]
+}

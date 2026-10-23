@@ -1,0 +1,1 @@
+{"version":"2.0.0","tasks":[{"label":"Build shared dashboard","type":"shell","command":"npm run build","problemMatcher":[]}]}
