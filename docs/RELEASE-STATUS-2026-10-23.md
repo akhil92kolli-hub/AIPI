@@ -1,0 +1,10 @@
+# AIPI 0.4.12 release checkpoint
+
+The release candidate is committed on `release/0.4.12-cross-repo` in the organization repository. It is not merged to `main`; the branch has substantial conflicts with newer main-line Team browser and sync changes. Do not treat the branch as the accepted production baseline until reconciled and retested.
+
+- Local companion: `@vmise/aipi-companion@0.4.12` published to npm. Package smoke and repository tests passed.
+- IDE: `aipi` VSIX 0.3.12 built with the bundled 0.4.12 companion for VS Code and Cursor. Marketplace publication is pending a valid `vmise` publisher token. The local Codex plugin manifest is 0.4.12; the cloud Codex plugin ZIP is built but has not been submitted for marketplace review.
+- Database: four pending migrations through `20261023124345_deployment_cohort_control.sql` applied to the linked AIPI-Team project; a subsequent dry run reported no pending migrations.
+- Cloud: API Worker `bead49af-5b47-4a86-a2b5-a1539672a90a`, Team web Worker `96dd67bd-47fd-4480-ae18-ea841ffa701d`, public site Worker `aa65638a-c986-4123-8e77-37c54046484e`. Public routes responded with HTTP 200.
+
+This is available for controlled testing, **not complete trusted cross-repository release acceptance**. The PR/merge check is fail-closed; accepted trusted pair proofs, complete consumer discovery, required-check configuration, protected deployment leases and pipeline integration, two-device convergence, full Supabase security matrix, and installed-device acceptance remain open. The deployment controller secret is not provisioned, so its protected routes cannot be used. Do not make the fail-closed check required for all production PRs yet.

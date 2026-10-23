@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "plugin", "aipi");
 const outputDir = path.join(root, "dist", "plugins");
-const output = path.join(outputDir, "aipi-0.4.7.zip");
+const manifest = JSON.parse(await readFile(path.join(source, "plugin.json"), "utf8"));
+const output = path.join(outputDir, `aipi-${manifest.version}.zip`);
 
 await mkdir(outputDir, { recursive: true });
 await rm(output, { force: true });

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "aipi-contracts",
-  "version": "0.4.8",
+  "version": "0.4.12",
   "description": "Inspect API contracts, check cross-repository blast radius, and review contract history with AIPI.",
   "author": {
     "name": "Akhil Kolli",
