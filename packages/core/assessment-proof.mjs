@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { assessLocalWorkspaceChange } from './change-assessment.mjs';
+import { workspaceGroup } from './workspace-groups.mjs';
 
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bad = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
@@ -22,7 +23,7 @@ function commandFor(project, root) {
   const cwd = path.posix.normalize((value.cwd ?? '.').replaceAll('\\', '/'));
   if (cwd === '..' || cwd.startsWith('../') || path.posix.isAbsolute(cwd) || /^[A-Za-z]:\//.test(cwd)) return null;
   return { command: value.command, args: [...value.args], cwd,
-    timeoutMs: value.timeoutMs ?? 120_000, resourceId: root.resourceId ?? root.id };
+    timeoutMs: value.timeoutMs ?? 120_000, resourceId: root.sourceBindingId ?? root.resourceId ?? root.id };
 }
 
 // The reviewed plan is rebuilt from registered source roots and current
@@ -36,20 +37,23 @@ export function reviewAssessmentChecks({ assessment, state, canRunProject }) {
     || assessment.revisionSet.length !== assessment.selection.resourceCount || assessment.revisionSet.length === 0) {
     throw bad('Complete source revision pins are required before reviewing checks.', 409);
   }
-  const group = state.workspaceGroups?.find(entry => entry.id === assessment.workspaceId);
+  // Assessment normalizes source identities on a clone. Resolve reviewed
+  // commands against the same identities without mutating the persisted state.
+  const normalizedState = structuredClone(state);
+  const group = workspaceGroup(normalizedState, assessment.workspaceId);
   if (!group) throw bad('Workspace unavailable.', 404);
   const checks = [], gaps = [];
   for (const component of assessment.components ?? []) {
-    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, state) !== true) {
+    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, normalizedState) !== true) {
       gaps.push('Some affected checks are inaccessible.'); continue;
     }
-    const project = state.projects?.find(entry => entry.id === component.projectId);
+    const project = normalizedState.projects?.find(entry => entry.id === component.projectId);
     const obligation = component.requirements?.find(entry => entry.kind === 'behavior' && entry.required !== false);
     if (!project || !obligation?.target || !obligation.configured) {
       gaps.push('An affected component has no configured behavior check.'); continue;
     }
     const source = component.source;
-    const root = project.sourceContext?.roots?.find(entry => (entry.resourceId ?? entry.id) === source?.resourceId);
+    const root = project.sourceContext?.roots?.find(entry => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === source?.resourceId);
     const command = root && commandFor(project, root);
     if (!command || !root || !bounded(command.resourceId)) {
       gaps.push('A configured check needs a reviewed argument array and an unambiguous registered source root.'); continue;
@@ -129,7 +133,7 @@ export async function executeReviewedAssessment({ assessment, state, canRunProje
     const before = await assessLocalWorkspaceChange(selectionInput(assessment, currentState, visible(currentState)));
     if (reviewAssessmentChecks({ assessment: before, state: currentState, canRunProject }).reviewHash !== plan.reviewHash) break;
     const project = currentState.projects.find(entry => entry.id === check.projectId);
-    const root = project.sourceContext.roots.find(entry => (entry.resourceId ?? entry.id) === check.sourceResourceId);
+    const root = project.sourceContext.roots.find(entry => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === check.sourceResourceId);
     let outcome;
     try { outcome = await executeCheck(project, { ...check.command, repositoryRoot: root.path }); }
     catch (error) { outcome = { passed: false, exitCode: null, errorCode: String(error.code ?? 'EXECUTOR_ERROR') }; }

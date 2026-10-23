@@ -1,6 +1,6 @@
 {
   "name": "aipi",
-  "version": "0.4.12+codex.20261023",
+  "version": "0.4.13+codex.20261023",
   "description": "Local-first API engineering for Codex: discover task context, hand off bounded evidence, run verification, inspect contracts, and work with the local AIPI companion.",
   "author": {
     "name": "Akhil Kolli"

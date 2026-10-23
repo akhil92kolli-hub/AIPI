@@ -1,6 +1,6 @@
 {
   "name": "@vmise/aipi-companion",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "description": "AIPI local companion and MCP server for AI-powered API intelligence.",
   "repository": {
     "type": "git",
@@ -79,7 +79,7 @@
     "cli": "node packages/cli/bin/api-forge.mjs",
     "test": "npm run test:source-index && npm run test:workspaces && npm run test:team-sync && npm run test:regression && npm run test:ui && npm run test:setup && npm run test:handshake && npm run test:integration && npm run test:cloud",
     "test:source-index": "node tests/http-source.test.mjs",
-    "test:regression": "node scripts/regression-test.mjs && node tests/codex-plugin.test.mjs && node tests/contract-domain.test.mjs && node tests/workspace-lock.test.mjs && node tests/contracts-evidence.test.mjs && node tests/contract-task-route.test.mjs && node tests/task-creation-pipeline.test.mjs && node tests/task-proposals.test.mjs && node tests/release-task-intents.test.mjs && node tests/bounded-tool-dispatch.test.mjs && node tests/mcp-handoff-lifecycle.test.mjs && node tests/vscode-extension-handoff.test.cjs && node tests/post-index-bootstrapper.test.mjs && node tests/team-memory.test.mjs && node tests/verification-runner.test.mjs && node tests/verification-route.test.mjs && node tests/knowledge-graph.test.mjs && node tests/knowledge-graph-route.test.mjs && node tests/context-freshness.test.mjs && node tests/security-redactor.test.mjs && node tests/otel-evidence-ingestor.test.mjs && node tests/otel-route.test.mjs && node tests/aipi-verify-cli.test.mjs",
+    "test:regression": "node scripts/regression-test.mjs && node tests/codex-plugin.test.mjs && node tests/contract-domain.test.mjs && node tests/workspace-lock.test.mjs && node tests/contracts-evidence.test.mjs && node tests/contract-task-route.test.mjs && node tests/change-assessment-route.test.mjs && node tests/task-creation-pipeline.test.mjs && node tests/task-proposals.test.mjs && node tests/release-task-intents.test.mjs && node tests/bounded-tool-dispatch.test.mjs && node tests/mcp-handoff-lifecycle.test.mjs && node tests/vscode-extension-handoff.test.cjs && node tests/post-index-bootstrapper.test.mjs && node tests/team-memory.test.mjs && node tests/verification-runner.test.mjs && node tests/verification-route.test.mjs && node tests/knowledge-graph.test.mjs && node tests/knowledge-graph-route.test.mjs && node tests/context-freshness.test.mjs && node tests/security-redactor.test.mjs && node tests/otel-evidence-ingestor.test.mjs && node tests/otel-route.test.mjs && node tests/aipi-verify-cli.test.mjs",
     "test:ui": "node tests/workspace-app.test.mjs && node tests/shared-ui-sync.test.mjs && node tests/payload-lenses.test.mjs && node tests/ui-correction-plan.test.mjs && node tests/indispensable-features.test.mjs",
     "test:extension": "node tests/vscode-extension-handoff.test.cjs",
     "test:verified-change": "node scripts/run-verified-change-fixture.mjs",

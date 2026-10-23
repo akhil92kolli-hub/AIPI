@@ -280389,6 +280389,7 @@ async function runLocalChangeAssessmentTool(state, args, canReadProject, acceptR
 // packages/core/assessment-proof.mjs
 import crypto31 from "node:crypto";
 import path25 from "node:path";
+init_workspace_groups();
 var digest9 = (value) => crypto31.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 var bad = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 var bounded2 = (value) => typeof value === "string" && value.length > 0 && value.length <= 512 && !value.includes("\0");
@@ -280405,7 +280406,7 @@ function commandFor(project, root) {
     args: [...value.args],
     cwd,
     timeoutMs: value.timeoutMs ?? 12e4,
-    resourceId: root.resourceId ?? root.id
+    resourceId: root.sourceBindingId ?? root.resourceId ?? root.id
   };
 }
 function reviewAssessmentChecks({ assessment, state, canRunProject }) {
@@ -280414,22 +280415,23 @@ function reviewAssessmentChecks({ assessment, state, canRunProject }) {
   if (!assessment.comparison?.diffComplete || !Array.isArray(assessment.revisionSet) || !Number.isInteger(assessment.selection.resourceCount) || assessment.revisionSet.length !== assessment.selection.resourceCount || assessment.revisionSet.length === 0) {
     throw bad("Complete source revision pins are required before reviewing checks.", 409);
   }
-  const group = state.workspaceGroups?.find((entry) => entry.id === assessment.workspaceId);
+  const normalizedState = structuredClone(state);
+  const group = workspaceGroup(normalizedState, assessment.workspaceId);
   if (!group) throw bad("Workspace unavailable.", 404);
   const checks = [], gaps = [];
   for (const component of assessment.components ?? []) {
-    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, state) !== true) {
+    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, normalizedState) !== true) {
       gaps.push("Some affected checks are inaccessible.");
       continue;
     }
-    const project = state.projects?.find((entry) => entry.id === component.projectId);
+    const project = normalizedState.projects?.find((entry) => entry.id === component.projectId);
     const obligation = component.requirements?.find((entry) => entry.kind === "behavior" && entry.required !== false);
     if (!project || !obligation?.target || !obligation.configured) {
       gaps.push("An affected component has no configured behavior check.");
       continue;
     }
     const source = component.source;
-    const root = project.sourceContext?.roots?.find((entry) => (entry.resourceId ?? entry.id) === source?.resourceId);
+    const root = project.sourceContext?.roots?.find((entry) => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === source?.resourceId);
     const command = root && commandFor(project, root);
     if (!command || !root || !bounded2(command.resourceId)) {
       gaps.push("A configured check needs a reviewed argument array and an unambiguous registered source root.");
@@ -280519,7 +280521,7 @@ async function executeReviewedAssessment({
     const before = await assessLocalWorkspaceChange(selectionInput(assessment, currentState, visible(currentState)));
     if (reviewAssessmentChecks({ assessment: before, state: currentState, canRunProject }).reviewHash !== plan.reviewHash) break;
     const project = currentState.projects.find((entry) => entry.id === check.projectId);
-    const root = project.sourceContext.roots.find((entry) => (entry.resourceId ?? entry.id) === check.sourceResourceId);
+    const root = project.sourceContext.roots.find((entry) => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === check.sourceResourceId);
     let outcome;
     try {
       outcome = await executeCheck(project, { ...check.command, repositoryRoot: root.path });

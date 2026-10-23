@@ -314400,7 +314400,7 @@ function commandFor(project, root) {
     args: [...value.args],
     cwd,
     timeoutMs: value.timeoutMs ?? 12e4,
-    resourceId: root.resourceId ?? root.id
+    resourceId: root.sourceBindingId ?? root.resourceId ?? root.id
   };
 }
 function reviewAssessmentChecks({ assessment, state, canRunProject }) {
@@ -314409,22 +314409,23 @@ function reviewAssessmentChecks({ assessment, state, canRunProject }) {
   if (!assessment.comparison?.diffComplete || !Array.isArray(assessment.revisionSet) || !Number.isInteger(assessment.selection.resourceCount) || assessment.revisionSet.length !== assessment.selection.resourceCount || assessment.revisionSet.length === 0) {
     throw bad("Complete source revision pins are required before reviewing checks.", 409);
   }
-  const group = state.workspaceGroups?.find((entry) => entry.id === assessment.workspaceId);
+  const normalizedState = structuredClone(state);
+  const group = workspaceGroup(normalizedState, assessment.workspaceId);
   if (!group) throw bad("Workspace unavailable.", 404);
   const checks = [], gaps = [];
   for (const component of assessment.components ?? []) {
-    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, state) !== true) {
+    if (!group.projectIds.includes(component.projectId) || canRunProject(component.projectId, normalizedState) !== true) {
       gaps.push("Some affected checks are inaccessible.");
       continue;
     }
-    const project = state.projects?.find((entry) => entry.id === component.projectId);
+    const project = normalizedState.projects?.find((entry) => entry.id === component.projectId);
     const obligation = component.requirements?.find((entry) => entry.kind === "behavior" && entry.required !== false);
     if (!project || !obligation?.target || !obligation.configured) {
       gaps.push("An affected component has no configured behavior check.");
       continue;
     }
     const source = component.source;
-    const root = project.sourceContext?.roots?.find((entry) => (entry.resourceId ?? entry.id) === source?.resourceId);
+    const root = project.sourceContext?.roots?.find((entry) => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === source?.resourceId);
     const command = root && commandFor(project, root);
     if (!command || !root || !bounded2(command.resourceId)) {
       gaps.push("A configured check needs a reviewed argument array and an unambiguous registered source root.");
@@ -314514,7 +314515,7 @@ async function executeReviewedAssessment({
     const before = await assessLocalWorkspaceChange(selectionInput(assessment, currentState, visible(currentState)));
     if (reviewAssessmentChecks({ assessment: before, state: currentState, canRunProject }).reviewHash !== plan.reviewHash) break;
     const project = currentState.projects.find((entry) => entry.id === check2.projectId);
-    const root = project.sourceContext.roots.find((entry) => (entry.resourceId ?? entry.id) === check2.sourceResourceId);
+    const root = project.sourceContext.roots.find((entry) => (entry.sourceBindingId ?? entry.resourceId ?? entry.id) === check2.sourceResourceId);
     let outcome;
     try {
       outcome = await executeCheck(project, { ...check2.command, repositoryRoot: root.path });

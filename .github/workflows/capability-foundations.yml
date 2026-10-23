@@ -69,6 +69,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
       - name: Verify coverage invariants and isolated Git capture
         run: node --test tests/verification-coverage.test.mjs tests/change-diff.test.mjs tests/change-assessment.test.mjs tests/assessment-proof.test.mjs tests/verification-package.test.mjs tests/change-assessment-view.test.mjs tests/verification-runner.test.mjs
   companion-integration:
